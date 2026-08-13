@@ -676,8 +676,10 @@ Créer :
 
 ```bash
 python scripts/test_pulid.py \
-  --reference inputs/reference.jpg \
+  --reference inputs/reference.webp \
   --prompt "cinematic portrait of a woman standing in Tokyo at night" \
+  --method dpmpp_2m_sde_karras \
+  --cfg 4 \
   --seed 42 \
   --strength 0.8
 ```
