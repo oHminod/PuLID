@@ -678,6 +678,7 @@ Créer :
 python scripts/test_pulid.py \
   --reference inputs/reference.webp \
   --prompt "cinematic portrait of a woman standing in Tokyo at night" \
+  --model reaxl_v30 \
   --method dpmpp_2m_sde_karras \
   --cfg 4 \
   --seed 42 \
