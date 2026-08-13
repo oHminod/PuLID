@@ -1,0 +1,20 @@
+models_root: /Volumes/SSD/Documents/PuLID_models
+
+sdxl:
+  # Le VAE est intégré à ce checkpoint Lightning/BakedVAE.
+  checkpoint: realvisxlV50_v50LightningBakedvae.safetensors
+
+pulid:
+  checkpoint: pulid_v1.1.safetensors
+
+insightface:
+  model_root: .
+  model_name: antelopev2
+
+outputs_dir: ./outputs
+identity_cache_dir: ./cache/identity
+
+device:
+  preferred: mps
+  dtype: float16
+

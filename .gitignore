@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environnements et secrets
+.venv/
+.env
+
+# Éditeurs et macOS
+.DS_Store
+.idea/
+.vscode/
+
+# Modèles lourds : ils doivent rester sur le SSD externe
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# Artefacts locaux
+outputs/*
+!outputs/.gitkeep
+cache/*
+!cache/identity/
+cache/identity/*
+!cache/identity/.gitkeep
+inputs/*
+!inputs/.gitkeep
+logs/
+

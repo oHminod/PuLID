@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pulid-app"
+version = "0.1.0"
+description = "Pipeline Python autonome pour PuLID et SDXL"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "PyYAML>=6.0.2,<7",
+  "rich>=13.9,<15",
+]
+
+[project.optional-dependencies]
+# Installées lorsque les phases d'inférence commencent. Elles restent déclarées
+# ici afin de centraliser l'environnement cible sans alourdir le bootstrap.
+inference = [
+  "accelerate>=1.2,<2",
+  "diffusers>=0.32,<1",
+  "huggingface-hub>=0.27,<2",
+  "insightface>=0.7.3,<1",
+  "numpy>=1.26,<3",
+  "onnxruntime>=1.20,<2",
+  "opencv-python>=4.10,<5",
+  "Pillow>=11,<13",
+  "safetensors>=0.5,<1",
+  "torch>=2.5,<3",
+  "torchvision>=0.20,<1",
+  "transformers>=4.47,<6",
+]
+dev = [
+  "pytest>=8.3,<10",
+]
+
+[project.scripts]
+pulid-inspect-models = "pulid_app.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pulid_app"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
