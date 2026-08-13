@@ -499,7 +499,7 @@ pendant la génération.
 
 ```bash
 python scripts/test_sdxl.py \
-  --prompt "portrait photo of a person, studio lighting" \
+  --prompt "portrait photo of a woman, tropical beach, studio lighting" \
   --seed 42
 ```
 
