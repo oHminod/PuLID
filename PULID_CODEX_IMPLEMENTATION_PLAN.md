@@ -858,7 +858,7 @@ Sur MPS, enregistrer les métriques accessibles proprement.
 Produire :
 
 ```text
-outputs/benchmark_<timestamp>.json
+outputs/benchmarks/benchmark_<timestamp>.json
 ```
 
 ---
