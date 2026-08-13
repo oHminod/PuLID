@@ -13,6 +13,7 @@ def _write_config(path: Path, models_root: Path) -> None:
 models_root: {models_root}
 sdxl:
   checkpoint: sdxl/model.safetensors
+  config_dir: sdxl/config
 pulid:
   checkpoint: pulid/model.safetensors
 insightface:
@@ -40,6 +41,7 @@ def test_load_config_resolves_model_paths_from_models_root(
 
     assert config.models_root == models_root
     assert config.sdxl.checkpoint == models_root / "sdxl/model.safetensors"
+    assert config.sdxl.config_dir == models_root / "sdxl/config"
     assert config.pulid.checkpoint == models_root / "pulid/model.safetensors"
     assert config.insightface.model_dir == models_root / "insightface/antelopev2"
 
@@ -64,4 +66,3 @@ def test_missing_required_key_is_actionable(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="sdxl"):
         load_config(config_path)
-

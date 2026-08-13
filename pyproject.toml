@@ -18,18 +18,18 @@ dependencies = [
   "rich>=13.9,<15",
   # InsightFace 0.7.3 appelle encore SimilarityTransform.estimate().
   "scikit-image>=0.22,<0.26",
-  "torch>=2.5,<3",
+  "torch>=2.13,<2.14",
 ]
 
 [project.optional-dependencies]
 # Dépendances complémentaires installées lorsque les phases d'inférence commencent.
 inference = [
-  "accelerate>=1.2,<2",
-  "diffusers>=0.32,<1",
-  "huggingface-hub>=0.27,<2",
-  "safetensors>=0.5,<1",
-  "torchvision>=0.20,<1",
-  "transformers>=4.47,<6",
+  "accelerate>=1.14,<1.15",
+  "diffusers>=0.39,<0.40",
+  "huggingface-hub>=1.27,<1.28",
+  "safetensors>=0.8,<0.9",
+  "torchvision>=0.28,<0.29",
+  "transformers>=5.15,<5.16",
 ]
 dev = [
   "pytest>=8.3,<10",

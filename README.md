@@ -4,10 +4,10 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 4 fournissent le bootstrap, la configuration centralisée,
+Les phases 1 à 5 fournissent le bootstrap, la configuration centralisée,
 l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
-faciale AntelopeV2 avec cache d'identité générique. L'intégration de SDXL/PuLID
-sera réalisée dans les phases suivantes.
+faciale AntelopeV2 avec cache d'identité générique. La génération SDXL locale
+est opérationnelle ; l'intégration de PuLID sera réalisée dans les phases suivantes.
 
 ## Prérequis
 
@@ -95,5 +95,30 @@ python scripts/cache_identity.py \
 Le premier appel crée une archive NPZ sous `cache/identity/`. Le deuxième appel
 avec la même image relit cette archive sans charger les modèles ONNX ni recalculer
 l'embedding. Utiliser `--force` pour imposer un recalcul.
+
+## Génération SDXL locale (phase 5)
+
+Le checkpoint monofichier contient l'UNet, les encodeurs de texte et le VAE, mais
+pas les fichiers de tokenizer/configuration. Leur préparation est une opération
+explicite qui télécharge environ 3 Mio de JSON/TXT vers le SSD et refuse tout
+fichier de poids :
+
+```bash
+source .venv/bin/activate
+python scripts/prepare_sdxl_config.py
+```
+
+La génération elle-même est ensuite strictement hors ligne (`local_files_only`) :
+
+```bash
+python scripts/test_sdxl.py \
+  --prompt "portrait photo of a woman, tropical beach, studio lighting" \
+  --seed 42
+```
+
+Les fichiers `outputs/sdxl_test_<timestamp>.png` et `.json` contiennent l'image
+et ses paramètres effectifs. Le pipeline sélectionne MPS en FP16 et ne tente un
+second chargement FP32 que pour une erreur FP16 compatible avec ce fallback ; un
+manque de mémoire ne déclenche jamais ce second essai.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.

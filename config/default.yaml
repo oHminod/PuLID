@@ -3,6 +3,8 @@ models_root: /Volumes/SSD/Documents/PuLID_models
 sdxl:
   # Le VAE est intégré à ce checkpoint Lightning/BakedVAE.
   checkpoint: realvisxlV50_v50LightningBakedvae.safetensors
+  # Configs et tokenizers uniquement ; aucun poids SDXL n'est stocké ici.
+  config_dir: sdxl/stable-diffusion-xl-base-1.0-config
 
 pulid:
   checkpoint: pulid_v1.1.safetensors
@@ -17,4 +19,3 @@ identity_cache_dir: ./cache/identity
 device:
   preferred: mps
   dtype: float16
-

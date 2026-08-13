@@ -21,6 +21,7 @@ class ConfigError(ValueError):
 @dataclass(frozen=True)
 class SDXLConfig:
     checkpoint: Path
+    config_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -118,7 +119,13 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         sdxl=SDXLConfig(
             checkpoint=_model_path(
                 _require_text(sdxl, "checkpoint", "sdxl"), models_root
-            )
+            ),
+            config_dir=(
+                _model_path(str(sdxl["config_dir"]), models_root)
+                if isinstance(sdxl.get("config_dir"), str)
+                and str(sdxl["config_dir"]).strip()
+                else None
+            ),
         ),
         pulid=PuLIDConfig(
             checkpoint=_model_path(
@@ -137,4 +144,3 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         ),
         source_path=source_path,
     )
-
