@@ -677,7 +677,7 @@ Créer :
 ```bash
 python scripts/test_pulid.py \
   --reference inputs/reference.jpg \
-  --prompt "cinematic portrait of a man standing in Tokyo at night" \
+  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
   --seed 42 \
   --strength 0.8
 ```
