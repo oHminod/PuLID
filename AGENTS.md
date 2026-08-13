@@ -14,6 +14,7 @@ Ce projet fournit un pipeline Python autonome pour générer des images avec SDX
 - Ne jamais déclencher un téléchargement implicite de SDXL. Le chargement doit viser un fichier local explicite.
 - Écrire les générations et métadonnées dans `outputs/`, et les petits caches d'identité dans `cache/identity/`.
 - Préserver la compatibilité MPS, CUDA et CPU. InsightFace/ONNX doit pouvoir rester sur CPU sur macOS.
+- Lors de toute modification du serveur HTTP qui change le contrat d'un endpoint (route, méthode, paramètres, corps ou en-têtes de réponse, statuts ou erreurs), mettre à jour `API_FRONTEND_INTEGRATION.md` dans la même tranche de travail.
 
 ## Méthode de travail des agents
 
