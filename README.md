@@ -4,7 +4,9 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-La phase 1 fournit le bootstrap du projet, sa configuration centralisée et l'inspection des modèles. L'intégration et le chargement effectif de SDXL/PuLID seront réalisés dans les phases suivantes du plan.
+Les phases 1 et 2 fournissent le bootstrap, la configuration centralisée,
+l'inspection des modèles et la validation du backend PyTorch/MPS. L'intégration
+et le chargement effectif de SDXL/PuLID seront réalisés dans les phases suivantes.
 
 ## Prérequis
 
@@ -22,7 +24,8 @@ uv pip install -e '.[dev]'
 source .venv/bin/activate
 ```
 
-Les dépendances de génération, volontairement non installées pendant le bootstrap, sont regroupées dans l'extra `inference` :
+Les dépendances complémentaires de génération sont regroupées dans l'extra
+`inference` :
 
 ```bash
 uv pip install -e '.[inference,dev]'
@@ -43,5 +46,16 @@ Le script vérifie la racine des modèles, l'espace disque, PuLID, AntelopeV2, l
 ```bash
 .venv/bin/pytest
 ```
+
+## Validation du backend MPS (phase 2)
+
+```bash
+source .venv/bin/activate
+python scripts/test_mps.py
+```
+
+La sélection automatique utilise l'ordre CUDA, MPS, puis CPU. Le script affiche
+la version de PyTorch, les backends disponibles, le dtype choisi et la mémoire
+détectée avant d'exécuter une petite multiplication matricielle sur MPS.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
