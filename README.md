@@ -1,114 +1,170 @@
 # PuLID Python
 
-Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Silicon/MPS. Les modèles et caches lourds restent sur le SSD externe ; seuls le code, les petites données d'identité et les résultats résident dans ce dépôt.
+Pipeline Python autonome pour générer des images SDXL conditionnées par une
+identité PuLID. Le backend principal est Apple Silicon/MPS ; CUDA et CPU restent
+pris en charge par la même architecture. Le projet ne dépend pas de ComfyUI.
 
-## État
+Les phases 1 à 16 du plan sont implémentées : configuration et caches externes,
+InsightFace, SDXL local, gestion mémoire, adaptateur PuLID v1.1, générateur,
+CLI, benchmark, compatibilité CUDA, tests automatisés, erreurs métier et
+documentation finale.
 
-Les phases 1 à 11 sont opérationnelles : bootstrap, configuration centralisée,
-inspection, backends MPS/CUDA/CPU, cache d'identité AntelopeV2, SDXL local,
-gestion mémoire, adaptateur PuLID v1.1, générateur haut niveau et CLI installable.
-Le pipeline complet peut être utilisé depuis Python ou avec `pulid-gen`.
+## 1. Prérequis
 
-## Prérequis
+- Python 3.11 à 3.13 (Python 3.11 recommandé) ;
+- `uv` pour créer l'environnement et installer le projet ;
+- sur Mac, un Apple Silicon avec PyTorch/MPS ;
+- en option, un GPU NVIDIA/CUDA pour le backend CUDA ;
+- le SSD monté à l'emplacement configuré, par défaut
+  `/Volumes/SSD/Documents/PuLID_models` ;
+- les checkpoints et actifs décrits ci-dessous déjà présents sur ce SSD.
 
-- Python 3.11 recommandé ;
-- modèles sous `/Volumes/SSD/Documents/PuLID_models` ;
-- checkpoint SDXL `realvisxlV50_v50LightningBakedvae.safetensors` (VAE intégré) ;
-- checkpoint PuLID `pulid_v1.1.safetensors` ;
-- dossier InsightFace `antelopev2/`.
+Le checkpoint SDXL par défaut est
+`realvisxlV50_v50LightningBakedvae.safetensors`. Son VAE est intégré : aucun VAE
+externe ne doit être configuré ou chargé.
 
-## Installation de la phase 1
+## 2. Création de l'environnement
+
+Depuis la racine du projet :
 
 ```bash
 uv venv --python 3.11
-uv pip install -e '.[dev]'
 source .venv/bin/activate
 ```
 
-Les dépendances complémentaires de génération sont regroupées dans l'extra
-`inference` :
+À chaque nouvelle session shell, réactiver l'environnement avec
+`source .venv/bin/activate`.
+
+## 3. Installation
+
+L'installation complète pour l'inférence et le développement est :
 
 ```bash
 uv pip install -e '.[inference,pulid,dev]'
 ```
 
-## Inspection des modèles
-
-Depuis la racine du dépôt :
+Vérifier ensuite l'installation et la configuration sans charger les poids :
 
 ```bash
-python scripts/inspect_models.py
+pulid-gen --version
+pulid-gen doctor
+python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
 ```
 
-Le script vérifie la racine des modèles, l'espace disque, PuLID, AntelopeV2, les candidats SDXL et l'accès en écriture de `outputs/`. Une autre configuration peut être fournie avec `--config`.
+`doctor` vérifie notamment le montage du SSD, les checkpoints, AntelopeV2, les
+configs SDXL, le runtime PuLID épinglé, EVA-CLIP, FaceXLib, les permissions, les
+devices et les versions des dépendances critiques.
 
-## Tests
+## 4. Arborescence des modèles
 
-```bash
-.venv/bin/pytest
+Les fichiers lourds restent sous `models_root`, jamais dans le dépôt :
+
+```text
+/Volumes/SSD/Documents/PuLID_models/
+├── realvisxlV50_v50LightningBakedvae.safetensors
+├── reaxl_v30.safetensors                 # checkpoint SDXL alternatif
+├── pulid_v1.1.safetensors
+├── antelopev2/
+│   ├── 1k3d68.onnx
+│   ├── 2d106det.onnx
+│   ├── genderage.onnx
+│   ├── glintr100.onnx
+│   └── scrfd_10g_bnkps.onnx
+├── sdxl/stable-diffusion-xl-base-1.0-config/
+│   ├── model_index.json
+│   ├── scheduler/
+│   ├── text_encoder/
+│   ├── text_encoder_2/
+│   ├── tokenizer/
+│   ├── tokenizer_2/
+│   ├── unet/
+│   └── vae/
+├── sources/PuLID/                        # code officiel à révision épinglée
+│   ├── eva_clip/
+│   └── pulid/
+├── facexlib/weights/
+├── huggingface/
+├── torch/
+└── other/
 ```
 
-## Validation du backend MPS (phase 2)
+La préparation idempotente du code officiel PuLID se fait une seule fois :
 
 ```bash
-source .venv/bin/activate
-python scripts/test_mps.py
+python scripts/prepare_pulid.py
+python scripts/prepare_pulid.py --check-only
 ```
 
-La sélection automatique utilise l'ordre CUDA, MPS, puis CPU. Le script affiche
-la version de PyTorch, les backends disponibles, le dtype choisi et la mémoire
-détectée avant d'exécuter une petite multiplication matricielle sur MPS.
+IDFormer, EVA-CLIP et les processeurs d'attention sont ainsi réutilisés depuis
+le SSD. Les poids EVA-CLIP et FaceXLib, lorsqu'ils doivent être acquis une
+première fois, sont également conservés sous cette même racine externe.
 
-## Validation d'AntelopeV2 (phase 3)
+## 5. Configuration du checkpoint SDXL
 
-La référence du projet est une image WebP :
+La configuration centrale est `config/default.yaml`. Les chemins de modèles
+relatifs sont résolus depuis `models_root`, tandis que `outputs_dir` et
+`identity_cache_dir` sont résolus depuis la racine du projet.
 
-```bash
-source .venv/bin/activate
-python scripts/test_insightface.py --image inputs/reference.webp
+```yaml
+models_root: /Volumes/SSD/Documents/PuLID_models
+
+sdxl:
+  checkpoint: realvisxlV50_v50LightningBakedvae.safetensors
+  config_dir: sdxl/stable-diffusion-xl-base-1.0-config
+
+device:
+  preferred: mps
+  dtype: float16
+  offload_strategy: none
 ```
 
-Pour enregistrer le résumé de la détection dans `cache/identity/` :
+Un monofichier SDXL ne contient pas les JSON et tokenizers attendus par
+Diffusers. La commande suivante prépare uniquement ces petits fichiers et
+refuse les poids distants :
 
 ```bash
-python scripts/test_insightface.py \
-  --image inputs/reference.webp \
-  --save-metadata
-```
-
-InsightFace utilise explicitement `CPUExecutionProvider` sur macOS. Si une image
-contient plusieurs visages, il faut en sélectionner un avec `--face-index N`.
-
-## Cache d'identité de Noémie (phase 4)
-
-Le cache accepte les images JPEG, PNG et WebP, ainsi que BMP et TIFF. Il est
-adressé par le SHA-256 du contenu de l'image : renommer un fichier ne provoque
-donc pas un nouveau calcul.
-
-```bash
-source .venv/bin/activate
-python scripts/cache_identity.py \
-  --character noemie \
-  --image inputs/reference.webp
-```
-
-Le premier appel crée une archive NPZ sous `cache/identity/`. Le deuxième appel
-avec la même image relit cette archive sans charger les modèles ONNX ni recalculer
-l'embedding. Utiliser `--force` pour imposer un recalcul.
-
-## Génération SDXL locale (phase 5)
-
-Le checkpoint monofichier contient l'UNet, les encodeurs de texte et le VAE, mais
-pas les fichiers de tokenizer/configuration. Leur préparation est une opération
-explicite qui télécharge environ 3 Mio de JSON/TXT vers le SSD et refuse tout
-fichier de poids :
-
-```bash
-source .venv/bin/activate
 python scripts/prepare_sdxl_config.py
 ```
 
-La génération elle-même est ensuite strictement hors ligne (`local_files_only`) :
+Il est possible de surcharger le fichier avec `--config` ou `PULID_CONFIG`, et
+la racine externe avec `PULID_MODELS_ROOT`.
+
+## 6. Test MPS
+
+```bash
+python scripts/test_mps.py
+python scripts/test_memory.py
+```
+
+Le premier script affiche PyTorch, MPS/CUDA, le dtype et la mémoire détectée,
+puis exécute un petit calcul MPS. Le second vérifie le déplacement et le
+nettoyage mémoire sans charger de checkpoint lourd. La sélection automatique
+suit l'ordre CUDA, MPS, CPU.
+
+## 7. Test InsightFace
+
+La référence de test est `inputs/noemie.webp`. JPEG, PNG, WebP, BMP et TIFF sont
+acceptés.
+
+```bash
+python scripts/test_insightface.py \
+  --image inputs/noemie.webp \
+  --save-metadata
+
+python scripts/cache_identity.py \
+  --character noemie \
+  --image inputs/noemie.webp
+```
+
+Sur macOS, InsightFace utilise `CPUExecutionProvider`. Le cache ArcFace est
+adressé par le SHA-256 du contenu ; renommer l'image ne déclenche donc pas un
+nouveau calcul. Pour une photo comportant plusieurs visages, fournir
+`--face-index N`. Utiliser `--force` pour recalculer le cache.
+
+## 8. Test SDXL
+
+Le chargement vise toujours un fichier `.safetensors` local explicite et utilise
+`local_files_only=True` : aucun téléchargement implicite de SDXL n'est permis.
 
 ```bash
 python scripts/test_sdxl.py \
@@ -116,81 +172,30 @@ python scripts/test_sdxl.py \
   --seed 42
 ```
 
-Les fichiers `outputs/sdxl_test_<timestamp>.png` et `.json` contiennent l'image
-et ses paramètres effectifs. Le pipeline sélectionne MPS en FP16 et ne tente un
-second chargement FP32 que pour une erreur FP16 compatible avec ce fallback ; un
-manque de mémoire ne déclenche jamais ce second essai.
+Le test écrit `outputs/sdxl_test_<timestamp>.png` et son JSON adjacent. Sur MPS,
+le pipeline utilise FP16 et n'essaie FP32 que pour une incompatibilité de dtype
+admissible ; un manque de mémoire ne déclenche pas ce second essai.
 
-## Gestion mémoire (phase 6)
+## 9. Test PuLID
 
-`MemoryManager` centralise les déplacements vers CPU/MPS/CUDA, le déchargement
-des modules et le nettoyage des caches. Un cache accélérateur n'est vidé qu'une
-fois après une ou plusieurs libérations ; `SDXLModel.close()` peut être appelé
-plusieurs fois sans multiplier les appels à `empty_cache()`.
-
-Le test suivant alloue une matrice de 64 Mio sur le meilleur backend disponible,
-puis vérifie les compteurs avant et après libération, sans charger de modèle :
-
-```bash
-source .venv/bin/activate
-python scripts/test_memory.py
-```
-
-## Adaptateur PuLID v1.1 (phases 7 et 8)
-
-L'adaptateur utilise l'architecture officielle : IDFormer produit 32 tokens
-d'identité de dimension 2048 à partir d'ArcFace et d'EVA-CLIP, puis 70
-processeurs PuLID sont injectés dans les cross-attentions de l'UNet SDXL. Le
-générateur n'importe aucune classe interne de PuLID.
-
-Le code officiel (IDFormer, EVA-CLIP et processeurs d'attention) est téléchargé
-une seule fois à une révision Git épinglée dans :
-
-```text
-/Volumes/SSD/Documents/PuLID_models/sources/PuLID
-```
-
-La commande est idempotente et ne copie rien dans ce dépôt :
-
-```bash
-source .venv/bin/activate
-python scripts/prepare_pulid.py
-python scripts/prepare_pulid.py --check-only
-```
-
-EVA-CLIP et FaceXLib conservent leurs poids téléchargés automatiquement sous
-`PuLID_models/huggingface/` et `PuLID_models/facexlib/weights/`. Ils ne sont donc
-pas recréés ni retéléchargés à chaque exécution. Pour valider le checkpoint et
-les traits de Noémie sans génération SDXL :
+Valider d'abord l'adaptateur, puis son injection dans le véritable UNet :
 
 ```bash
 python scripts/test_pulid_adapter.py \
   --device mps \
   --reference inputs/noemie.webp \
   --offline
+
+python scripts/test_pulid_adapter.py \
+  --device mps \
+  --reference inputs/noemie.webp \
+  --offline \
+  --apply-sdxl
 ```
 
-Pour vérifier l'injection dans le véritable UNet SDXL local :
+Le test complet historique reste disponible :
 
 ```bash
-python scripts/test_pulid_adapter.py --device mps --offline --apply-sdxl
-```
-
-Enfin, l'inspection peut afficher les caches effectifs et échouer si l'un d'eux
-pointe hors de la racine du SSD :
-
-```bash
-python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
-```
-
-## Premier test PuLID complet (phase 9)
-
-Le test complet utilise par défaut `inputs/noemie.webp`, charge tous les modèles
-hors ligne, injecte PuLID dans RealVisXL puis écrit un PNG et son manifeste JSON
-adjacent dans `outputs/` :
-
-```bash
-source .venv/bin/activate
 python scripts/test_pulid.py \
   --reference inputs/noemie.webp \
   --prompt "cinematic portrait of a woman standing in Tokyo at night" \
@@ -198,19 +203,7 @@ python scripts/test_pulid.py \
   --strength 0.8
 ```
 
-Un autre checkpoint SDXL situé dans le même dossier que le modèle configuré
-peut être sélectionné par son nom, sans l'extension `.safetensors` :
-
-```bash
-python scripts/test_pulid.py \
-  --model reaxl_v30 \
-  --reference inputs/noemie.webp \
-  --prompt "cinematic portrait of a woman standing in Tokyo at night"
-```
-
-Sans `--model`, le checkpoint déclaré dans `config/default.yaml` reste utilisé.
-
-Le scheduler et le CFG peuvent également être remplacés pour un test donné :
+Pour employer ReaXL, fournir seulement le nom sans extension :
 
 ```bash
 python scripts/test_pulid.py \
@@ -219,19 +212,31 @@ python scripts/test_pulid.py \
   --cfg 4.5
 ```
 
-`--method` active ici DPM++ 2M SDE avec les sigmas Karras. Sans cette option,
-le scheduler fourni par le checkpoint est conservé. Sans `--cfg`, le CFG reste
-à sa valeur de base de `7.0`. L'ancien nom `--guidance-scale` reste accepté.
+Sans `--model`, `--method` ou `--cfg`, le modèle, le scheduler et le CFG
+préconfigurés restent inchangés.
 
-Le JSON contient la référence, les prompts, les paramètres d'inférence, les
-checkpoints SDXL/PuLID, la révision du runtime officiel, le device, le dtype et
-les durées effectives. Le VAE du checkpoint SDXL monofichier est utilisé.
+## 10. Génération finale
 
-## Générateur haut niveau (phase 10)
+La CLI installable encode la référence, applique PuLID, génère l'image et écrit
+automatiquement ses métadonnées :
 
-`ImageGenerator` charge les modèles au premier usage, réutilise le cache ArcFace,
-prépare le conditionnement PuLID, sélectionne le device et sauvegarde
-automatiquement un PNG et son JSON adjacent :
+```bash
+pulid-gen generate \
+  --reference inputs/noemie.webp \
+  --character noemie \
+  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
+  --model reaxl_v30 \
+  --method dpmpp_2m_sde_karras \
+  --cfg 4.5 \
+  --strength 0.8 \
+  --steps 20 \
+  --seed 42
+```
+
+Le checkpoint alternatif doit se trouver à côté du modèle configuré ; passer
+son nom sans `.safetensors`. Omettre `--model` utilise RealVisXL par défaut.
+
+L'API Python de haut niveau fournit le même cycle de vie :
 
 ```python
 from pulid_app.config import load_config
@@ -248,8 +253,6 @@ with ImageGenerator(config, device="mps") as generator:
         prompt="cinematic portrait of a woman standing in Tokyo at night",
         identity=identity,
         seed=42,
-        width=1024,
-        height=1024,
         steps=20,
         identity_strength=0.8,
     )
@@ -258,53 +261,112 @@ print(result.png_path)
 print(result.json_path)
 ```
 
-Le contexte `with` garantit le cleanup des modèles. Sans `device`, le meilleur
-backend disponible est choisi dans l'ordre CUDA, MPS, puis CPU. Les paramètres
-`sampling_method="dpmpp_2m_sde_karras"` et `guidance_scale=...` restent
-disponibles dans `generate()`.
-
-## CLI installable (phase 11)
-
-Après l'installation éditable du projet, la commande principale est disponible
-dans l'environnement virtuel :
-
-```bash
-source .venv/bin/activate
-pulid-gen --help
-```
-
-Le diagnostic complet ne charge aucun poids de génération :
-
-```bash
-pulid-gen doctor
-```
-
-Il vérifie le montage du SSD, les caches externes, les checkpoints, AntelopeV2,
-les configurations SDXL, le runtime PuLID épinglé, FaceXLib, EVA-CLIP, les
-permissions des sorties, MPS/CUDA et les versions des dépendances critiques.
-
-Les commandes d'inspection et de cache sont également regroupées :
-
-```bash
-pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
-pulid-gen encode \
-  --reference inputs/noemie.webp \
-  --character noemie
-```
-
-Une génération complète s'exécute ainsi :
+Sur une machine CUDA disposant d'une VRAM limitée, l'offload SDXL est opt-in :
 
 ```bash
 pulid-gen generate \
+  --device cuda \
+  --offload model_cpu_offload \
   --reference inputs/noemie.webp \
-  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
-  --model reaxl_v30 \
-  --method dpmpp_2m_sde_karras \
-  --cfg 4.5 \
-  --seed 42
+  --prompt "portrait photo"
 ```
 
-La sous-commande `benchmark` est réservée mais retourne volontairement un code
-non nul jusqu'à son implémentation dans la phase 12.
+`model_cpu_offload` est refusé sur MPS et CPU. La valeur par défaut `none`
+préserve le comportement MPS actuel.
 
-Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
+## Benchmark et tests automatisés
+
+Le benchmark exécute des runs froids avec la même seed et sépare neuf durées :
+chargement SDXL, PuLID, InsightFace, extraction d'identité, préparation du
+prompt, diffusion, VAE, sauvegarde et total.
+
+```bash
+pulid-gen benchmark \
+  --reference inputs/noemie.webp \
+  --prompt "cinematic portrait" \
+  --runs 3 \
+  --model reaxl_v30 \
+  --method dpmpp_2m_sde_karras \
+  --cfg 4.5
+```
+
+Les catégories pytest sont `unit`, `integration`, `slow` et `gpu` :
+
+```bash
+pytest -m unit
+pytest -m integration
+pytest
+```
+
+Les tests d'intégration sont opt-in afin que les tests normaux ne chargent ni le
+SSD ni les modèles lourds :
+
+```bash
+PULID_RUN_INTEGRATION=1 pytest -m integration -k insightface
+PULID_RUN_SLOW=1 pytest -m 'integration and slow'
+```
+
+## 11. Dépannage
+
+Les erreurs CLI affichent leur type et une correction probable :
+
+| Erreur | Cause probable | Correction |
+|---|---|---|
+| `ExternalDriveNotMountedError` | `models_root` ou son volume est absent | Monter le SSD puis relancer `pulid-gen doctor` |
+| `ModelNotFoundError` | checkpoint/config/ONNX local absent | Corriger `config/default.yaml` ou le nom fourni à `--model` |
+| `FaceNotDetectedError` | aucun visage exploitable | Utiliser une référence nette, de face et suffisamment grande |
+| `MultipleFacesDetectedError` | plusieurs visages détectés | Ajouter `--face-index N` |
+| `UnsupportedDeviceError` | backend ou offload incompatible | Choisir `mps`, `cuda` ou `cpu`; réserver l'offload à CUDA |
+| `ModelLoadError` | dépendance, provider, poids ou mémoire | Lancer `doctor`, vérifier les versions et réduire la charge mémoire |
+| `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
+
+Contrôles utiles :
+
+```bash
+pulid-gen doctor
+pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
+```
+
+Les dimensions doivent être positives et divisibles par 8, la seed positive ou
+nulle, les steps strictement positifs, et le CFG positif ou nul.
+
+## 12. Emplacement des outputs
+
+Les sorties normales sont écrites sous `outputs/` avec un même stem :
+
+```text
+outputs/
+├── pulid_<timestamp>.png
+├── pulid_<timestamp>.json
+└── benchmarks/
+    ├── benchmark_<timestamp>.json
+    └── runs/
+        ├── benchmark_run_001_<timestamp>.png
+        └── benchmark_run_001_<timestamp>.json
+```
+
+Le manifeste JSON conserve les références, prompts, seed, dimensions, steps,
+CFG, méthode de sampling, force PuLID, checkpoints, device, dtype, VAE intégré
+et durées effectives.
+
+## 13. Emplacement des caches
+
+Seul le petit cache d'identité est conservé dans le projet :
+
+```text
+cache/identity/*.npz
+```
+
+Tous les caches lourds sont forcés sous `models_root` avant les imports ML :
+
+| Variable | Emplacement sous `PuLID_models` |
+|---|---|
+| `HF_HOME` | `huggingface/` |
+| `HUGGINGFACE_HUB_CACHE` | `huggingface/hub/` |
+| `TRANSFORMERS_CACHE` | `huggingface/transformers/` |
+| `TORCH_HOME` | `torch/` |
+| `XDG_CACHE_HOME` | `other/` |
+| `MPLCONFIGDIR` | `other/matplotlib/` |
+
+Il ne faut ni déplacer ni recopier les checkpoints, EVA-CLIP, IDFormer,
+FaceXLib ou AntelopeV2 dans ce dépôt.

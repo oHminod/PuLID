@@ -8,8 +8,10 @@ import time
 from typing import Any, TYPE_CHECKING
 
 from pulid_app.config import AppConfig
+from pulid_app.exceptions import GenerationError, PuLIDAppError, UnsupportedDeviceError
 from pulid_app.identity import CharacterIdentity
 from pulid_app.io.images import save_image_with_metadata
+from pulid_app.io.metadata import save_json_metadata
 from pulid_app.paths import configure_external_model_caches
 
 if TYPE_CHECKING:
@@ -26,7 +28,7 @@ DEFAULT_NEGATIVE_PROMPT = (
 SUPPORTED_DEVICE_TYPES = frozenset({"cpu", "cuda", "mps"})
 
 
-class ImageGeneratorError(RuntimeError):
+class ImageGeneratorError(GenerationError):
     """Une étape du pipeline haut niveau n'a pas pu aboutir."""
 
 
@@ -57,6 +59,7 @@ class ImageGenerationResult:
     png_path: Path
     json_path: Path
     metadata: dict[str, Any]
+    save_duration_seconds: float
 
 
 def _normalize_device(device: str) -> str:
@@ -64,7 +67,7 @@ def _normalize_device(device: str) -> str:
     device_type = normalized.split(":", maxsplit=1)[0]
     if device_type not in SUPPORTED_DEVICE_TYPES:
         supported = ", ".join(sorted(SUPPORTED_DEVICE_TYPES))
-        raise ImageGeneratorError(
+        raise UnsupportedDeviceError(
             f"Device non pris en charge : {device!r}. Valeurs acceptées : {supported}."
         )
     return normalized
@@ -79,6 +82,7 @@ class ImageGenerator:
         *,
         device: str | None = None,
         dtype_name: str | None = None,
+        offload_strategy: str | None = None,
         allow_downloads: bool = False,
         identity_encoder: "IdentityEncoder | None" = None,
         adapter: "PuLIDAdapter | None" = None,
@@ -88,6 +92,7 @@ class ImageGenerator:
         configure_external_model_caches(config.models_root)
         self._device = _normalize_device(device) if device is not None else None
         self.dtype_name = dtype_name or config.device.dtype
+        self.offload_strategy = offload_strategy or config.device.offload_strategy
         self.allow_downloads = allow_downloads
         self._identity_encoder = identity_encoder
         self._adapter = adapter
@@ -131,10 +136,41 @@ class ImageGenerator:
                 self.config,
                 device=self.device,
                 dtype_name=self.dtype_name,
+                offload_strategy=self.offload_strategy,
                 # Un rechargement automatique perdrait les processeurs PuLID.
                 allow_dtype_fallback=False,
             )
         return self._sdxl
+
+    def load_identity_encoder(self) -> "IdentityEncoder":
+        """Charge explicitement InsightFace pour les diagnostics et benchmarks."""
+
+        from pulid_app.models.identity_encoder import IdentityEncoderError
+
+        try:
+            return self._get_identity_encoder().load()
+        except IdentityEncoderError as exc:
+            raise ImageGeneratorError(f"Chargement InsightFace impossible : {exc}") from exc
+
+    def load_identity_adapter(self) -> "PuLIDAdapter":
+        """Charge explicitement IDFormer et les poids d'attention PuLID."""
+
+        from pulid_app.models.pulid_adapter import PuLIDError
+
+        try:
+            return self._get_adapter().load()
+        except PuLIDError as exc:
+            raise ImageGeneratorError(f"Chargement PuLID impossible : {exc}") from exc
+
+    def load_sdxl(self) -> "SDXLModel":
+        """Charge explicitement le checkpoint SDXL local."""
+
+        from pulid_app.models.sdxl import SDXLError
+
+        try:
+            return self._get_sdxl().load()
+        except SDXLError as exc:
+            raise ImageGeneratorError(f"Chargement SDXL impossible : {exc}") from exc
 
     def encode_identity(
         self,
@@ -200,6 +236,9 @@ class ImageGenerator:
         pipeline_duration_seconds: float,
     ) -> dict[str, Any]:
         source_images = list(identity.source_images)
+        stage_durations = dict(
+            getattr(result, "stage_durations_seconds", {})
+        )
         return {
             "reference_image": source_images[0],
             "reference_images": source_images,
@@ -227,8 +266,14 @@ class ImageGenerator:
             "vae": "integrated",
             "device": result.device,
             "dtype": result.dtype,
+            "offload_strategy": self.offload_strategy,
             "dtype_fallback_used": result.dtype_fallback_used,
             "generation_duration_seconds": result.duration_seconds,
+            "prompt_preparation_duration_seconds": stage_durations.get(
+                "prompt_preparation", 0.0
+            ),
+            "diffusion_duration_seconds": stage_durations.get("diffusion", 0.0),
+            "vae_duration_seconds": stage_durations.get("vae", 0.0),
             "pipeline_duration_seconds": pipeline_duration_seconds,
             "total_duration_seconds": (
                 identity.duration_seconds + pipeline_duration_seconds
@@ -249,6 +294,8 @@ class ImageGenerator:
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
         output_prefix: str = "pulid",
+        output_dir: str | Path | None = None,
+        collect_timings: bool = False,
     ) -> ImageGenerationResult:
         """Génère puis sauvegarde automatiquement le PNG et son manifeste JSON."""
 
@@ -281,6 +328,7 @@ class ImageGenerator:
                     height=height,
                     guidance_scale=guidance_scale,
                     cross_attention_kwargs=cross_attention_kwargs,
+                    collect_timings=collect_timings,
                 )
             finally:
                 adapter.clear_identity()
@@ -300,13 +348,20 @@ class ImageGenerator:
                 result=result,
                 pipeline_duration_seconds=pipeline_duration,
             )
+            save_started = time.monotonic()
             png_path, json_path = save_image_with_metadata(
                 result.image,
                 metadata,
-                self.config.outputs_dir,
+                output_dir or self.config.outputs_dir,
                 prefix=output_prefix,
             )
-        except (PuLIDError, SDXLError, OSError, RuntimeError, ValueError) as exc:
+            save_duration = time.monotonic() - save_started
+            metadata["save_duration_seconds"] = save_duration
+            metadata["total_duration_seconds"] += save_duration
+            # Le manifeste initial permet de mesurer l'écriture complète PNG+JSON ;
+            # cette seconde écriture atomique ne fait que persister la mesure.
+            save_json_metadata(json_path, metadata)
+        except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
             if isinstance(exc, ImageGeneratorError):
                 raise
             raise ImageGeneratorError(f"Génération PuLID impossible : {exc}") from exc
@@ -316,6 +371,7 @@ class ImageGenerator:
             png_path=png_path,
             json_path=json_path,
             metadata=metadata,
+            save_duration_seconds=save_duration,
         )
 
     def close(self) -> None:

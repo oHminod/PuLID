@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 import time
-from typing import Any, TYPE_CHECKING
+from typing import Any, Iterator, TYPE_CHECKING
 
 from pulid_app.config import AppConfig
 from pulid_app.device import get_best_device
+from pulid_app.exceptions import (
+    GenerationError,
+    ModelLoadError,
+    ModelNotFoundError,
+    PuLIDAppError,
+)
 from pulid_app.paths import configure_external_model_caches
 from pulid_app.pipeline.memory import MemoryManager, MemoryManagerError
 
@@ -32,9 +39,10 @@ REQUIRED_SDXL_CONFIG_FILES = (
     "vae/config.json",
 )
 SUPPORTED_SAMPLING_METHODS = frozenset({"dpmpp_2m_sde_karras"})
+SUPPORTED_OFFLOAD_STRATEGIES = frozenset({"none", "model_cpu_offload"})
 
 
-class SDXLError(RuntimeError):
+class SDXLError(PuLIDAppError):
     """Erreur métier du pipeline SDXL local."""
 
 
@@ -42,12 +50,16 @@ class SDXLConfigurationError(SDXLError):
     """Un chemin ou un paramètre SDXL est invalide."""
 
 
-class SDXLLoadError(SDXLError):
+class SDXLLoadError(SDXLError, ModelLoadError):
     """Le checkpoint SDXL ne peut pas être chargé."""
 
 
-class SDXLGenerationError(SDXLError):
+class SDXLGenerationError(SDXLError, GenerationError):
     """La génération SDXL a échoué."""
+
+
+class SDXLModelNotFoundError(SDXLConfigurationError, ModelNotFoundError):
+    """Un fichier local requis par SDXL est absent."""
 
 
 @dataclass(frozen=True)
@@ -60,6 +72,7 @@ class SDXLGenerationResult:
     dtype: str
     dtype_fallback_used: bool
     duration_seconds: float
+    stage_durations_seconds: Mapping[str, float]
 
 
 def _dtype_name(dtype: Any) -> str:
@@ -69,6 +82,80 @@ def _dtype_name(dtype: Any) -> str:
 def _is_out_of_memory(exc: RuntimeError) -> bool:
     message = str(exc).casefold()
     return "out of memory" in message or "mps backend out of memory" in message
+
+
+@contextmanager
+def _measure_pipeline_stages(
+    pipeline: Any,
+    *,
+    enabled: bool,
+) -> Iterator[dict[str, float]]:
+    """Instrumente les méthodes Diffusers sans modifier leur implémentation."""
+
+    timings = {
+        "prompt_preparation": 0.0,
+        "diffusion": 0.0,
+        "vae": 0.0,
+    }
+    if not enabled:
+        yield timings
+        return
+
+    restorations: list[tuple[Any, str, bool, Any]] = []
+    diffusion_started: float | None = None
+
+    def wrap_accumulated(target: Any, attribute: str, key: str) -> None:
+        original = getattr(target, attribute)
+        target_attributes = vars(target)
+        had_instance_attribute = attribute in target_attributes
+        previous_instance_value = target_attributes.get(attribute)
+
+        def measured(*args: Any, **kwargs: Any) -> Any:
+            started = time.monotonic()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                timings[key] += time.monotonic() - started
+
+        restorations.append(
+            (target, attribute, had_instance_attribute, previous_instance_value)
+        )
+        setattr(target, attribute, measured)
+
+    def wrap_diffusion(target: Any) -> None:
+        original = getattr(target, "forward")
+        target_attributes = vars(target)
+        had_instance_attribute = "forward" in target_attributes
+        previous_instance_value = target_attributes.get("forward")
+
+        def measured(*args: Any, **kwargs: Any) -> Any:
+            nonlocal diffusion_started
+            started = time.monotonic()
+            if diffusion_started is None:
+                diffusion_started = started
+            try:
+                return original(*args, **kwargs)
+            finally:
+                timings["diffusion"] = time.monotonic() - diffusion_started
+
+        restorations.append(
+            (target, "forward", had_instance_attribute, previous_instance_value)
+        )
+        setattr(target, "forward", measured)
+
+    try:
+        wrap_accumulated(pipeline, "encode_prompt", "prompt_preparation")
+        wrap_diffusion(pipeline.unet)
+        wrap_accumulated(pipeline.vae, "decode", "vae")
+        yield timings
+    finally:
+        for target, attribute, had_instance_attribute, previous in reversed(
+            restorations
+        ):
+            if had_instance_attribute:
+                setattr(target, attribute, previous)
+            else:
+                delattr(target, attribute)
 
 
 class SDXLModel:
@@ -83,6 +170,7 @@ class SDXLModel:
         device: str | None = None,
         dtype_name: str | None = None,
         allow_dtype_fallback: bool = True,
+        offload_strategy: str = "none",
     ) -> None:
         self.checkpoint_path = Path(checkpoint_path).expanduser().resolve(strict=False)
         self.config_dir = Path(config_dir).expanduser().resolve(strict=False)
@@ -90,6 +178,8 @@ class SDXLModel:
         self.device = (device or get_best_device()).casefold()
         self.requested_dtype_name = dtype_name.casefold() if dtype_name else None
         self.allow_dtype_fallback = allow_dtype_fallback
+        self.offload_strategy = offload_strategy.strip().casefold()
+        self._validate_offload_strategy()
         self.memory_manager = MemoryManager(self.models_root, device=self.device)
         self.pipeline: Any | None = None
         self.active_dtype: Any | None = None
@@ -105,6 +195,7 @@ class SDXLModel:
         device: str | None = None,
         dtype_name: str | None = None,
         allow_dtype_fallback: bool = True,
+        offload_strategy: str | None = None,
     ) -> "SDXLModel":
         if config.sdxl.config_dir is None:
             raise SDXLConfigurationError(
@@ -118,7 +209,41 @@ class SDXLModel:
             device=device,
             dtype_name=dtype_name or config.device.dtype,
             allow_dtype_fallback=allow_dtype_fallback,
+            offload_strategy=offload_strategy or config.device.offload_strategy,
         )
+
+    def _validate_offload_strategy(self) -> None:
+        if self.offload_strategy not in SUPPORTED_OFFLOAD_STRATEGIES:
+            supported = ", ".join(sorted(SUPPORTED_OFFLOAD_STRATEGIES))
+            raise SDXLConfigurationError(
+                f"Stratégie d'offload inconnue : {self.offload_strategy!r}. "
+                f"Valeurs acceptées : {supported}."
+            )
+        device_type = self.device.split(":", maxsplit=1)[0]
+        if self.offload_strategy != "none" and device_type != "cuda":
+            raise SDXLConfigurationError(
+                "model_cpu_offload est réservé à CUDA ; utilisez offload_strategy=none "
+                f"avec le device {self.device!r}."
+            )
+
+    def _place_pipeline(self, pipeline: Any) -> Any:
+        """Place SDXL selon la stratégie choisie, sans API CUDA hors CUDA."""
+
+        device_type = self.device.split(":", maxsplit=1)[0]
+        if self.offload_strategy == "model_cpu_offload":
+            if device_type != "cuda":  # garde redondante, volontairement locale
+                raise SDXLConfigurationError(
+                    "L'offload SDXL ne peut être activé que sur CUDA."
+                )
+            offload = getattr(pipeline, "enable_model_cpu_offload", None)
+            if not callable(offload):
+                raise SDXLLoadError(
+                    "Cette version de Diffusers ne fournit pas "
+                    "enable_model_cpu_offload(). Réinstallez les dépendances d'inférence."
+                )
+            offload(device=self.device)
+            return pipeline
+        return self.memory_manager.move_to_device(pipeline, self.device)
 
     @property
     def is_loaded(self) -> bool:
@@ -130,15 +255,16 @@ class SDXLModel:
 
     def _validate_local_files(self) -> None:
         if not self.checkpoint_path.is_file():
-            raise SDXLConfigurationError(
-                f"Checkpoint SDXL introuvable : {self.checkpoint_path}"
+            raise SDXLModelNotFoundError(
+                f"Checkpoint SDXL introuvable : {self.checkpoint_path}. "
+                "Corrigez sdxl.checkpoint ou sélectionnez un modèle local existant."
             )
         if self.checkpoint_path.suffix.casefold() != ".safetensors":
             raise SDXLConfigurationError(
                 f"Le checkpoint SDXL doit être un .safetensors : {self.checkpoint_path}"
             )
         if not self.config_dir.is_dir():
-            raise SDXLConfigurationError(
+            raise SDXLModelNotFoundError(
                 f"Dossier de configuration SDXL introuvable : {self.config_dir}. "
                 "Exécutez `python scripts/prepare_sdxl_config.py`."
             )
@@ -148,9 +274,10 @@ class SDXLModel:
             if not (self.config_dir / relative).is_file()
         ]
         if missing:
-            raise SDXLConfigurationError(
+            raise SDXLModelNotFoundError(
                 "Configuration SDXL locale incomplète ; fichiers manquants : "
                 + ", ".join(str(path) for path in missing)
+                + ". Exécutez `python scripts/prepare_sdxl_config.py`."
             )
 
     def _import_ml(self) -> tuple[Any, Any]:
@@ -252,7 +379,7 @@ class SDXLModel:
                 torch_dtype=dtype,
                 add_watermarker=False,
             )
-            pipeline = self.memory_manager.move_to_device(pipeline, self.device)
+            pipeline = self._place_pipeline(pipeline)
             self._default_scheduler = pipeline.scheduler
             if self.sampling_method is not None:
                 # Un éventuel rechargement contrôlé doit conserver le scheduler
@@ -372,7 +499,8 @@ class SDXLModel:
         height: int,
         guidance_scale: float,
         cross_attention_kwargs: Mapping[str, Any] | None,
-    ) -> "Image":
+        collect_timings: bool,
+    ) -> tuple["Image", dict[str, float]]:
         assert self.pipeline is not None
         generator = torch_module.Generator(device="cpu").manual_seed(seed)
         generation_kwargs: dict[str, Any] = {
@@ -391,11 +519,15 @@ class SDXLModel:
             generation_kwargs["cross_attention_kwargs"] = dict(
                 cross_attention_kwargs
             )
-        with torch_module.inference_mode():
-            output = self.pipeline(**generation_kwargs)
+        with _measure_pipeline_stages(
+            self.pipeline,
+            enabled=collect_timings,
+        ) as stage_durations:
+            with torch_module.inference_mode():
+                output = self.pipeline(**generation_kwargs)
         if not output.images:
             raise SDXLGenerationError("SDXL n'a retourné aucune image.")
-        return output.images[0]
+        return output.images[0], stage_durations
 
     def generate(
         self,
@@ -408,6 +540,7 @@ class SDXLModel:
         height: int = 1024,
         guidance_scale: float = 7.0,
         cross_attention_kwargs: Mapping[str, Any] | None = None,
+        collect_timings: bool = False,
     ) -> SDXLGenerationResult:
         """Génère une image avec un éventuel second essai FP32 contrôlé sur MPS."""
 
@@ -419,7 +552,7 @@ class SDXLModel:
         self.memory_manager.bind_torch(torch_module)
         started = time.monotonic()
         try:
-            image = self._run_generation(
+            image, stage_durations = self._run_generation(
                 torch_module,
                 prompt=prompt,
                 negative_prompt=negative_prompt,
@@ -429,6 +562,7 @@ class SDXLModel:
                 height=height,
                 guidance_scale=guidance_scale,
                 cross_attention_kwargs=cross_attention_kwargs,
+                collect_timings=collect_timings,
             )
         except RuntimeError as exc:
             can_fallback = (
@@ -449,7 +583,7 @@ class SDXLModel:
                 )
                 self.active_dtype = torch_module.float32
                 self.dtype_fallback_used = True
-                image = self._run_generation(
+                image, stage_durations = self._run_generation(
                     torch_module,
                     prompt=prompt,
                     negative_prompt=negative_prompt,
@@ -459,6 +593,7 @@ class SDXLModel:
                     height=height,
                     guidance_scale=guidance_scale,
                     cross_attention_kwargs=None,
+                    collect_timings=collect_timings,
                 )
             except (SDXLLoadError, RuntimeError) as fallback_exc:
                 raise SDXLGenerationError(
@@ -473,4 +608,5 @@ class SDXLModel:
             dtype=self.active_dtype_name or "inconnu",
             dtype_fallback_used=self.dtype_fallback_used,
             duration_seconds=time.monotonic() - started,
+            stage_durations_seconds=stage_durations,
         )

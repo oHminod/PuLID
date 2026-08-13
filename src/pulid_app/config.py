@@ -49,6 +49,7 @@ class InsightFaceConfig:
 class DeviceConfig:
     preferred: str = "mps"
     dtype: str = "float16"
+    offload_strategy: str = "none"
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         device=DeviceConfig(
             preferred=str(device.get("preferred", "mps")),
             dtype=str(device.get("dtype", "float16")),
+            offload_strategy=str(device.get("offload_strategy", "none")),
         ),
         source_path=source_path,
     )

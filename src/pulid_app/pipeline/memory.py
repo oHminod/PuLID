@@ -8,14 +8,19 @@ from pathlib import Path
 from typing import Any
 
 from pulid_app.config import AppConfig
+from pulid_app.exceptions import PuLIDAppError, UnsupportedDeviceError
 from pulid_app.paths import configure_external_model_caches
 
 
 SUPPORTED_DEVICE_TYPES = frozenset({"cpu", "cuda", "mps"})
 
 
-class MemoryManagerError(RuntimeError):
+class MemoryManagerError(PuLIDAppError):
     """Un déplacement ou un nettoyage mémoire n'a pas pu aboutir."""
+
+
+class MemoryUnsupportedDeviceError(MemoryManagerError, UnsupportedDeviceError):
+    """Le gestionnaire mémoire a reçu un backend inconnu."""
 
 
 @dataclass(frozen=True)
@@ -33,7 +38,7 @@ def _normalize_device(device: str) -> str:
     device_type = normalized.split(":", maxsplit=1)[0]
     if device_type not in SUPPORTED_DEVICE_TYPES:
         supported = ", ".join(sorted(SUPPORTED_DEVICE_TYPES))
-        raise MemoryManagerError(
+        raise MemoryUnsupportedDeviceError(
             f"Device non pris en charge : {device!r}. Valeurs acceptées : {supported}."
         )
     return normalized

@@ -9,6 +9,7 @@ import tempfile
 from typing import Mapping
 
 from pulid_app.config import AppConfig
+from pulid_app.exceptions import ExternalDriveNotMountedError
 
 
 ANTELOPEV2_REQUIRED_FILES = frozenset(
@@ -141,6 +142,23 @@ def ensure_writable_directory(path: Path) -> None:
             pass
     except OSError as exc:
         raise PermissionError(f"Le dossier n'est pas accessible en écriture : {path}") from exc
+
+
+def require_models_root(models_root: Path) -> Path:
+    """Exige une racine de modèles disponible et, sous /Volumes, montée."""
+
+    root = models_root.expanduser().resolve(strict=False)
+    parts = root.parts
+    expected_mount = (
+        Path("/Volumes") / parts[2]
+        if len(parts) >= 3 and parts[1] == "Volumes"
+        else None
+    )
+    if not root.is_dir() or (
+        expected_mount is not None and not expected_mount.is_mount()
+    ):
+        raise ExternalDriveNotMountedError(root)
+    return root
 
 
 def resolve_sdxl_checkpoint(config: AppConfig, model_name: str | None) -> Path:

@@ -15,12 +15,19 @@ from rich.table import Table
 from pulid_app import __version__
 from pulid_app.config import AppConfig, ConfigError, PROJECT_ROOT, load_config
 from pulid_app.doctor import build_doctor_report, print_doctor_report
+from pulid_app.exceptions import (
+    ExternalDriveNotMountedError,
+    ModelNotFoundError,
+    PuLIDAppError,
+    actionable_error,
+)
 from pulid_app.paths import (
     cache_env_violations,
     configure_external_model_caches,
     ensure_writable_directory,
     external_cache_paths,
     inspect_models,
+    require_models_root,
     resolve_sdxl_checkpoint,
 )
 
@@ -30,6 +37,12 @@ DEFAULT_NEGATIVE_PROMPT = (
     "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
 )
 SAMPLING_METHODS = ("dpmpp_2m_sde_karras",)
+OFFLOAD_STRATEGIES = ("none", "model_cpu_offload")
+
+
+def _print_actionable_error(console: Console, exc: BaseException) -> None:
+    label, cause = actionable_error(exc)
+    console.print(f"[bold red]{label}:[/]\n{cause}")
 
 
 def build_inspection_parser() -> argparse.ArgumentParser:
@@ -266,6 +279,11 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--device", choices=("mps", "cuda", "cpu"))
     generate.add_argument("--dtype", choices=("float16", "float32"))
     generate.add_argument(
+        "--offload",
+        choices=OFFLOAD_STRATEGIES,
+        help="Stratégie mémoire SDXL ; model_cpu_offload est réservé à CUDA.",
+    )
+    generate.add_argument(
         "--model",
         help="Nom d'un checkpoint SDXL local, sans l'extension .safetensors.",
     )
@@ -279,8 +297,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     benchmark = subparsers.add_parser(
         "benchmark",
-        help="Réservé au benchmark reproductible de la phase 12.",
+        help="Mesure séparément les étapes du pipeline complet.",
     )
+    _add_config_option(benchmark)
+    _add_identity_options(benchmark)
+    benchmark.add_argument("--prompt", required=True)
+    benchmark.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT)
+    benchmark.add_argument("--runs", type=int, default=3)
+    benchmark.add_argument("--seed", type=int, default=42)
+    benchmark.add_argument("--strength", type=float, default=0.8)
+    benchmark.add_argument("--steps", type=int, default=20)
+    benchmark.add_argument(
+        "--guidance-scale",
+        "--cfg",
+        dest="guidance_scale",
+        type=float,
+        default=7.0,
+    )
+    benchmark.add_argument("--width", type=int, default=1024)
+    benchmark.add_argument("--height", type=int, default=1024)
+    benchmark.add_argument("--device", choices=("mps", "cuda", "cpu"))
+    benchmark.add_argument("--dtype", choices=("float16", "float32"))
+    benchmark.add_argument("--offload", choices=OFFLOAD_STRATEGIES)
+    benchmark.add_argument("--model")
+    benchmark.add_argument("--method", choices=SAMPLING_METHODS)
     benchmark.set_defaults(handler=_handle_benchmark)
     return parser
 
@@ -314,6 +354,11 @@ def run_encode(
     config = _load_command_config(args.config, console)
     if config is None:
         return 2
+    try:
+        require_models_root(config.models_root)
+    except ExternalDriveNotMountedError as exc:
+        _print_actionable_error(console, exc)
+        return 2
     configure_external_model_caches(config.models_root)
     reference = _project_path(args.reference)
     character = (args.character or reference.stem).strip()
@@ -335,8 +380,8 @@ def run_encode(
             face_index=args.face_index,
             force_recompute=args.force,
         )
-    except (IdentityEncoderError, OSError, RuntimeError, ValueError) as exc:
-        console.print(f"[bold red]Encodage impossible :[/] {exc}")
+    except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
+        _print_actionable_error(console, exc)
         return 1
 
     state = "réutilisé" if cache_hit else "créé"
@@ -357,14 +402,23 @@ def run_generate(
     if config is None:
         return 2
     try:
+        require_models_root(config.models_root)
+    except ExternalDriveNotMountedError as exc:
+        _print_actionable_error(console, exc)
+        return 2
+    try:
         checkpoint = resolve_sdxl_checkpoint(config, args.model)
     except ValueError as exc:
         console.print(f"[bold red]Modèle SDXL invalide :[/] {exc}")
         return 2
-    if args.model is not None and not checkpoint.is_file():
-        console.print(
-            f"[bold red]Modèle SDXL introuvable :[/] {checkpoint}. "
-            f"Placez-le dans {checkpoint.parent} ou omettez --model."
+    if not checkpoint.is_file():
+        _print_actionable_error(
+            console,
+            ModelNotFoundError(
+                f"Checkpoint SDXL introuvable : {checkpoint}. "
+                "Corrigez sdxl.checkpoint, utilisez --model avec un nom local "
+                "existant, ou omettez --model pour revenir au modèle configuré."
+            ),
         )
         return 2
     config = replace(config, sdxl=replace(config.sdxl, checkpoint=checkpoint))
@@ -382,6 +436,7 @@ def run_generate(
             config,
             device=args.device,
             dtype_name=args.dtype,
+            offload_strategy=args.offload,
             allow_downloads=False,
         )
         console.print(f"Device : [bold]{generator.device}[/]")
@@ -404,8 +459,8 @@ def run_generate(
             guidance_scale=args.guidance_scale,
             sampling_method=args.method,
         )
-    except ImageGeneratorError as exc:
-        console.print(f"[bold red]Génération impossible :[/] {exc}")
+    except PuLIDAppError as exc:
+        _print_actionable_error(console, exc)
         return 1
     finally:
         if generator is not None:
@@ -422,12 +477,76 @@ def run_generate(
     return 0
 
 
-def run_benchmark(console: Console) -> int:
-    console.print(
-        "[yellow]La commande benchmark est réservée à la phase 12 et n'exécute "
-        "encore aucune génération.[/]"
-    )
-    return 2
+def run_benchmark(
+    args: argparse.Namespace,
+    console: Console,
+    *,
+    runner_factory: Callable[..., Any] | None = None,
+) -> int:
+    config = _load_command_config(args.config, console)
+    if config is None:
+        return 2
+    try:
+        require_models_root(config.models_root)
+    except ExternalDriveNotMountedError as exc:
+        _print_actionable_error(console, exc)
+        return 2
+    try:
+        checkpoint = resolve_sdxl_checkpoint(config, args.model)
+    except ValueError as exc:
+        console.print(f"[bold red]Modèle SDXL invalide :[/] {exc}")
+        return 2
+    if not checkpoint.is_file():
+        _print_actionable_error(
+            console,
+            ModelNotFoundError(
+                f"Checkpoint SDXL introuvable : {checkpoint}. "
+                "Sélectionnez un nom local existant avec --model."
+            ),
+        )
+        return 2
+    config = replace(config, sdxl=replace(config.sdxl, checkpoint=checkpoint))
+    configure_external_model_caches(config.models_root)
+    reference = _project_path(args.reference)
+
+    from pulid_app.pipeline.benchmark import BenchmarkError, BenchmarkRunner
+
+    factory = runner_factory or BenchmarkRunner
+    try:
+        runner = factory(
+            config,
+            device=args.device,
+            dtype_name=args.dtype,
+            offload_strategy=args.offload,
+        )
+        result = runner.run(
+            reference=reference,
+            prompt=args.prompt,
+            identity_id=args.character,
+            face_index=args.face_index,
+            runs=args.runs,
+            negative_prompt=args.negative_prompt,
+            seed=args.seed,
+            width=args.width,
+            height=args.height,
+            steps=args.steps,
+            identity_strength=args.strength,
+            guidance_scale=args.guidance_scale,
+            sampling_method=args.method,
+        )
+    except BenchmarkError as exc:
+        _print_actionable_error(console, exc)
+        return 1
+
+    console.print(f"[bold green]Benchmark enregistré :[/] {result.json_path}")
+    summary = result.report["summary_seconds"]
+    table = Table(title="Durées moyennes")
+    table.add_column("Étape")
+    table.add_column("Secondes", justify="right")
+    for name, statistics_ in summary.items():
+        table.add_row(name, f"{statistics_['mean']:.3f}")
+    console.print(table)
+    return 0
 
 
 def _handle_doctor(args: argparse.Namespace, console: Console) -> int:
@@ -451,8 +570,8 @@ def _handle_generate(args: argparse.Namespace, console: Console) -> int:
     return run_generate(args, console)
 
 
-def _handle_benchmark(_args: argparse.Namespace, console: Console) -> int:
-    return run_benchmark(console)
+def _handle_benchmark(args: argparse.Namespace, console: Console) -> int:
+    return run_benchmark(args, console)
 
 
 def main(argv: list[str] | None = None) -> int:

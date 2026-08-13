@@ -29,6 +29,7 @@ identity_cache_dir: ./cache/identity
 device:
   preferred: cpu
   dtype: float32
+  offload_strategy: model_cpu_offload
 """,
         encoding="utf-8",
     )
@@ -52,6 +53,7 @@ def test_load_config_resolves_model_paths_from_models_root(
     assert config.pulid.revision == "0123456789abcdef0123456789abcdef01234567"
     assert config.pulid.facexlib_root == models_root / "facexlib"
     assert config.insightface.model_dir == models_root / "insightface/antelopev2"
+    assert config.device.offload_strategy == "model_cpu_offload"
 
 
 def test_models_root_environment_override(

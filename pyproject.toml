@@ -51,3 +51,9 @@ packages = ["src/pulid_app"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+markers = [
+  "unit: test rapide, isolé du réseau, du SSD externe et des modèles lourds",
+  "integration: test plusieurs composants avec les modèles locaux configurés",
+  "slow: test charge un checkpoint lourd ou exécute une génération",
+  "gpu: test nécessitant un accélérateur MPS ou CUDA",
+]

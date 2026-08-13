@@ -17,6 +17,12 @@ from numpy.typing import NDArray
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from pulid_app.config import AppConfig, DEFAULT_PULID_REVISION
+from pulid_app.exceptions import (
+    GenerationError,
+    ModelLoadError,
+    ModelNotFoundError,
+    PuLIDAppError,
+)
 from pulid_app.models.identity_encoder import IdentityEncoder, IdentityEncoderError
 from pulid_app.models.pulid_assets import (
     PuLIDAssetError,
@@ -30,7 +36,7 @@ SUPPORTED_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "BMP", "TIFF"})
 EXPECTED_CHECKPOINT_MODULES = frozenset({"id_adapter", "id_adapter_attn_layers"})
 
 
-class PuLIDError(RuntimeError):
+class PuLIDError(PuLIDAppError):
     """Erreur métier de l'adaptateur PuLID."""
 
 
@@ -38,12 +44,16 @@ class PuLIDConfigurationError(PuLIDError):
     """La configuration, le checkpoint ou le runtime PuLID est invalide."""
 
 
-class PuLIDLoadError(PuLIDError):
+class PuLIDLoadError(PuLIDError, ModelLoadError):
     """Les modules ou les poids PuLID ne peuvent pas être chargés."""
 
 
-class PuLIDIdentityError(PuLIDError):
+class PuLIDIdentityError(PuLIDError, GenerationError):
     """Les traits d'identité PuLID ne peuvent pas être préparés."""
+
+
+class PuLIDModelNotFoundError(PuLIDConfigurationError, ModelNotFoundError):
+    """Le checkpoint PuLID local configuré est absent."""
 
 
 @dataclass(frozen=True)
@@ -193,8 +203,9 @@ class PuLIDAdapter:
 
     def _validate_configuration(self) -> None:
         if not self.checkpoint_path.is_file():
-            raise PuLIDConfigurationError(
-                f"Checkpoint PuLID v1.1 introuvable : {self.checkpoint_path}"
+            raise PuLIDModelNotFoundError(
+                f"Checkpoint PuLID v1.1 introuvable : {self.checkpoint_path}. "
+                "Corrigez pulid.checkpoint dans la configuration."
             )
         if self.checkpoint_path.suffix.casefold() != ".safetensors":
             raise PuLIDConfigurationError(

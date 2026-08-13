@@ -16,6 +16,13 @@ from numpy.typing import NDArray
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from pulid_app.config import AppConfig
+from pulid_app.exceptions import (
+    FaceNotDetectedError,
+    ModelLoadError as AppModelLoadError,
+    ModelNotFoundError,
+    MultipleFacesDetectedError as AppMultipleFacesDetectedError,
+    PuLIDAppError,
+)
 from pulid_app.identity import (
     CharacterIdentity,
     IdentitySerializationError,
@@ -32,31 +39,34 @@ SUPPORTED_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "BMP", "TIFF"})
 ImageInput = str | Path | NDArray[np.generic]
 
 
-class IdentityEncoderError(RuntimeError):
+class IdentityEncoderError(PuLIDAppError):
     """Erreur métier de l'encodeur d'identité."""
 
 
-class ModelLoadError(IdentityEncoderError):
+class ModelLoadError(IdentityEncoderError, AppModelLoadError):
     """Les modèles locaux ne peuvent pas être chargés."""
+
+
+class IdentityModelNotFoundError(ModelLoadError, ModelNotFoundError):
+    """Un modèle InsightFace local requis est absent."""
 
 
 class ImageReadError(IdentityEncoderError):
     """L'image est absente, illisible ou dans un format incorrect."""
 
 
-class NoFaceDetectedError(IdentityEncoderError):
+class NoFaceDetectedError(IdentityEncoderError, FaceNotDetectedError):
     """Aucun visage n'a été détecté."""
 
 
-class MultipleFacesDetectedError(IdentityEncoderError):
+class MultipleFacesDetectedError(
+    IdentityEncoderError,
+    AppMultipleFacesDetectedError,
+):
     """Plusieurs visages exigent une sélection explicite."""
 
     def __init__(self, count: int) -> None:
-        self.count = count
-        super().__init__(
-            f"{count} visages détectés. Sélectionnez-en un explicitement avec "
-            "face_index (ou --face-index dans le script)."
-        )
+        AppMultipleFacesDetectedError.__init__(self, count)
 
 
 class FaceIndexError(IdentityEncoderError):
@@ -160,7 +170,7 @@ class IdentityEncoder:
         if self.is_loaded:
             return self
         if not self.model_dir.is_dir():
-            raise ModelLoadError(
+            raise IdentityModelNotFoundError(
                 f"Dossier AntelopeV2 introuvable : {self.model_dir}. "
                 "Corrigez insightface.model_root/model_name dans la configuration."
             )
@@ -168,7 +178,10 @@ class IdentityEncoder:
         missing = [path for path in self._required_model_paths() if not path.is_file()]
         if missing:
             missing_text = ", ".join(str(path) for path in missing)
-            raise ModelLoadError(f"Modèle(s) ONNX requis introuvable(s) : {missing_text}")
+            raise IdentityModelNotFoundError(
+                f"Modèle(s) ONNX requis introuvable(s) : {missing_text}. "
+                "Complétez le dossier AntelopeV2 configuré."
+            )
         if not self.providers:
             raise ModelLoadError("Au moins un ONNX Execution Provider doit être configuré.")
 

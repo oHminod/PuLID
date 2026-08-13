@@ -37,6 +37,8 @@ class FakePipeline:
 
     def __init__(self) -> None:
         self.scheduler = SimpleNamespace(config={"scheduler": "checkpoint"})
+        self.to_calls: list[str] = []
+        self.offload_calls: list[str] = []
 
     @classmethod
     def from_single_file(cls, checkpoint: str, **kwargs):
@@ -45,7 +47,11 @@ class FakePipeline:
 
     def to(self, device: str):
         self.device = device
+        self.to_calls.append(device)
         return self
+
+    def enable_model_cpu_offload(self, *, device: str) -> None:
+        self.offload_calls.append(device)
 
     def enable_attention_slicing(self, mode: str) -> None:
         self.attention_slicing = mode
@@ -99,6 +105,72 @@ def test_load_uses_local_config_and_disables_network(
     assert model.active_dtype_name == "float16"
 
 
+def test_cuda_model_cpu_offload_avoids_eager_pipeline_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="cuda",
+        offload_strategy="model_cpu_offload",
+    )
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    model.load()
+
+    assert model.pipeline.offload_calls == ["cuda"]
+    assert model.pipeline.to_calls == []
+
+
+def test_cuda_default_strategy_keeps_eager_pipeline_transfer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="cuda:1",
+    )
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    model.load()
+
+    assert model.pipeline.to_calls == ["cuda:1"]
+    assert model.pipeline.offload_calls == []
+
+
+@pytest.mark.parametrize("device", ["mps", "cpu"])
+def test_model_cpu_offload_is_rejected_without_cuda(
+    tmp_path: Path, device: str
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    with pytest.raises(SDXLConfigurationError, match="réservé à CUDA"):
+        SDXLModel(
+            checkpoint,
+            config_dir,
+            models_root=tmp_path,
+            device=device,
+            offload_strategy="model_cpu_offload",
+        )
+
+
+def test_unknown_offload_strategy_is_rejected(tmp_path: Path) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    with pytest.raises(SDXLConfigurationError, match="Stratégie d'offload inconnue"):
+        SDXLModel(
+            checkpoint,
+            config_dir,
+            models_root=tmp_path,
+            device="cuda",
+            offload_strategy="sequential",
+        )
+
+
 def test_generate_returns_image_and_effective_parameters(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -148,6 +220,61 @@ def test_generate_forwards_generic_cross_attention_kwargs(
         "id_embedding": identity_embedding,
         "id_scale": 0.8,
     }
+
+
+def test_generate_collects_prompt_diffusion_and_vae_timings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    class Component:
+        def forward(self, value):
+            return value
+
+    class VAE:
+        def decode(self, value):
+            return value
+
+    class InstrumentedPipeline(FakePipeline):
+        def __init__(self) -> None:
+            super().__init__()
+            self.unet = Component()
+            self.vae = VAE()
+
+        def encode_prompt(self, value):
+            return value
+
+        def __call__(self, **kwargs):
+            self.encode_prompt(kwargs["prompt"])
+            self.unet.forward("latents")
+            self.unet.forward("latents")
+            self.vae.decode("latents")
+            return SimpleNamespace(
+                images=[Image.new("RGB", (kwargs["width"], kwargs["height"]))]
+            )
+
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(
+        model,
+        "_import_ml",
+        lambda: (_fake_torch(), InstrumentedPipeline),
+    )
+
+    result = model.generate(
+        prompt="portrait",
+        steps=2,
+        width=64,
+        height=64,
+        collect_timings=True,
+    )
+
+    assert result.stage_durations_seconds["prompt_preparation"] >= 0.0
+    assert result.stage_durations_seconds["diffusion"] >= 0.0
+    assert result.stage_durations_seconds["vae"] >= 0.0
+    assert model.pipeline is not None
+    assert "encode_prompt" not in vars(model.pipeline)
+    assert "forward" not in vars(model.pipeline.unet)
+    assert "decode" not in vars(model.pipeline.vae)
 
 
 def test_set_sampling_method_configures_dpmpp_2m_sde_karras(

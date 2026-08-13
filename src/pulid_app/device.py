@@ -7,6 +7,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from pulid_app.config import load_config
+from pulid_app.exceptions import UnsupportedDeviceError
 from pulid_app.paths import configure_external_model_caches
 
 if TYPE_CHECKING:
@@ -85,7 +86,7 @@ def _device_type(device: str) -> str:
     device_type = device.strip().casefold().split(":", maxsplit=1)[0]
     if device_type not in SUPPORTED_DEVICE_TYPES:
         supported = ", ".join(sorted(SUPPORTED_DEVICE_TYPES))
-        raise ValueError(
+        raise UnsupportedDeviceError(
             f"Device non pris en charge : {device!r}. Valeurs acceptées : {supported}."
         )
     return device_type
@@ -207,4 +208,3 @@ def print_device_report(console: "Console | None" = None) -> DeviceReport:
             f"Mémoire accélérateur : {_format_bytes(report.accelerator_memory_bytes)}"
         )
     return report
-

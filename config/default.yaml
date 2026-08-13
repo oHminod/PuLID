@@ -27,3 +27,6 @@ identity_cache_dir: ./cache/identity
 device:
   preferred: mps
   dtype: float16
+  # Disponible pour CUDA : charge les composants SDXL en VRAM à la demande.
+  # Désactivé par défaut pour préserver le comportement MPS actuel.
+  offload_strategy: none

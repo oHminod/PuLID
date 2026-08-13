@@ -136,13 +136,24 @@ def test_main_parser_exposes_phase_11_subcommands() -> None:
             "dpmpp_2m_sde_karras",
             "--cfg",
             "4.5",
+            "--offload",
+            "model_cpu_offload",
         ]
     )
-    benchmark = parser.parse_args(["benchmark"])
+    benchmark = parser.parse_args(
+        [
+            "benchmark",
+            "--reference",
+            "inputs/noemie.webp",
+            "--prompt",
+            "portrait",
+        ]
+    )
 
     assert generate.command == "generate"
     assert generate.guidance_scale == 4.5
     assert generate.method == "dpmpp_2m_sde_karras"
+    assert generate.offload == "model_cpu_offload"
     assert benchmark.command == "benchmark"
 
 
@@ -234,6 +245,8 @@ def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) 
             "4.5",
             "--seed",
             "7",
+            "--offload",
+            "model_cpu_offload",
         ]
     )
     output = StringIO()
@@ -249,14 +262,60 @@ def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) 
     assert calls["generate"]["guidance_scale"] == 4.5
     assert calls["generate"]["sampling_method"] == "dpmpp_2m_sde_karras"
     assert calls["generate"]["seed"] == 7
+    assert calls["constructor"]["offload_strategy"] == "model_cpu_offload"
     assert calls["closed"] is True
     assert "Image générée" in output.getvalue()
 
 
-def test_benchmark_is_explicitly_deferred_to_phase_12() -> None:
+def test_benchmark_command_delegates_to_runner(tmp_path: Path) -> None:
+    config_path, _models = _write_cli_config(tmp_path)
+    reference = tmp_path / "noemie.webp"
+    reference.write_bytes(b"image")
+    calls: dict[str, object] = {}
+
+    class FakeRunner:
+        def __init__(self, config, **kwargs):
+            calls["config"] = config
+            calls["constructor"] = kwargs
+
+        def run(self, **kwargs):
+            calls["run"] = kwargs
+            return SimpleNamespace(
+                json_path=tmp_path / "outputs" / "benchmarks" / "benchmark.json",
+                report={
+                    "summary_seconds": {
+                        "total": {"mean": 1.25},
+                    }
+                },
+            )
+
+    args = build_parser().parse_args(
+        [
+            "benchmark",
+            "--config",
+            str(config_path),
+            "--reference",
+            str(reference),
+            "--prompt",
+            "portrait",
+            "--runs",
+            "2",
+            "--steps",
+            "3",
+            "--offload",
+            "model_cpu_offload",
+        ]
+    )
     output = StringIO()
 
-    result = run_benchmark(Console(file=output, force_terminal=False))
+    result = run_benchmark(
+        args,
+        Console(file=output, force_terminal=False),
+        runner_factory=FakeRunner,
+    )
 
-    assert result == 2
-    assert "phase 12" in output.getvalue()
+    assert result == 0
+    assert calls["run"]["runs"] == 2
+    assert calls["run"]["steps"] == 3
+    assert calls["constructor"]["offload_strategy"] == "model_cpu_offload"
+    assert "Benchmark enregistré" in output.getvalue()

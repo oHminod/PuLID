@@ -118,6 +118,11 @@ class FakeSDXL:
             dtype="float32",
             dtype_fallback_used=False,
             duration_seconds=0.25,
+            stage_durations_seconds={
+                "prompt_preparation": 0.01,
+                "diffusion": 0.2,
+                "vae": 0.04,
+            },
         )
 
     def close(self) -> None:
@@ -212,6 +217,12 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert metadata["sampling_method"] == "dpmpp_2m_sde_karras"
     assert metadata["sdxl_checkpoint"] == str(generator.config.sdxl.checkpoint)
     assert metadata["vae"] == "integrated"
+    assert metadata["offload_strategy"] == "none"
+    assert metadata["prompt_preparation_duration_seconds"] == 0.01
+    assert metadata["diffusion_duration_seconds"] == 0.2
+    assert metadata["vae_duration_seconds"] == 0.04
+    assert metadata["save_duration_seconds"] >= 0.0
+    assert generated.save_duration_seconds >= 0.0
 
 
 def test_generate_rejects_identity_from_another_api(tmp_path: Path) -> None:
