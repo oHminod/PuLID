@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import sys
 import time
@@ -44,7 +45,41 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, help="Configuration YAML alternative.")
     parser.add_argument("--device", choices=("mps", "cuda", "cpu"))
     parser.add_argument("--dtype", choices=("float16", "float32"))
+    parser.add_argument(
+        "--model",
+        help=(
+            "Nom d'un checkpoint SDXL placé à côté du modèle configuré, "
+            "sans l'extension .safetensors."
+        ),
+    )
     return parser
+
+
+def resolve_sdxl_checkpoint(config: AppConfig, model_name: str | None) -> Path:
+    """Résout un nom de modèle local sans accepter de chemin arbitraire."""
+
+    if model_name is None:
+        return config.sdxl.checkpoint
+
+    selected = model_name.strip()
+    if not selected:
+        raise ValueError("L'option --model ne peut pas être vide.")
+    if selected in {".", ".."} or "/" in selected or "\\" in selected:
+        raise ValueError(
+            "L'option --model attend uniquement un nom de modèle, pas un chemin."
+        )
+
+    lowered = selected.casefold()
+    for extension in (".safetensors", ".safetensor"):
+        if lowered.endswith(extension):
+            selected = selected[: -len(extension)]
+            break
+    if not selected:
+        raise ValueError("Le nom fourni à --model est invalide.")
+
+    return (
+        config.sdxl.checkpoint.parent / f"{selected}.safetensors"
+    ).resolve(strict=False)
 
 
 def build_metadata(
@@ -86,9 +121,21 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = load_config(args.config)
-    except ConfigError as exc:
+        selected_checkpoint = resolve_sdxl_checkpoint(config, args.model)
+    except (ConfigError, ValueError) as exc:
         print(f"Configuration invalide : {exc}", file=sys.stderr)
         return 2
+
+    if args.model is not None and not selected_checkpoint.is_file():
+        print(
+            "Modèle SDXL demandé introuvable : "
+            f"{selected_checkpoint}. Placez le fichier .safetensors dans "
+            f"{selected_checkpoint.parent} ou omettez --model pour utiliser "
+            "le modèle configuré.",
+            file=sys.stderr,
+        )
+        return 2
+    config = replace(config, sdxl=replace(config.sdxl, checkpoint=selected_checkpoint))
 
     reference = args.reference.expanduser().resolve(strict=False)
     configure_external_model_caches(config.models_root)
@@ -115,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_downloads=False,
         )
         console.print(f"Référence : [cyan]{reference}[/]")
+        console.print(f"Modèle SDXL : [cyan]{config.sdxl.checkpoint.name}[/]")
         console.print(f"Device : [bold]{device}[/]")
         console.print("1/4 — Préparation InsightFace, FaceXLib, EVA-CLIP et IDFormer…")
         identity_started = time.monotonic()

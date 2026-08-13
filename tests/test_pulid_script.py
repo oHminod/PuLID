@@ -17,7 +17,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from test_pulid import DEFAULT_REFERENCE, build_metadata, build_parser  # noqa: E402
+from test_pulid import (  # noqa: E402
+    DEFAULT_REFERENCE,
+    build_metadata,
+    build_parser,
+    resolve_sdxl_checkpoint,
+)
 
 
 def test_parser_defaults_to_noemie_webp() -> None:
@@ -27,10 +32,46 @@ def test_parser_defaults_to_noemie_webp() -> None:
     assert args.reference.name == "noemie.webp"
     assert args.strength == 0.8
     assert args.steps == 20
+    assert args.model is None
 
 
-def test_metadata_contains_phase_9_manifest(tmp_path: Path) -> None:
-    config = AppConfig(
+def test_parser_accepts_model_name_without_extension() -> None:
+    args = build_parser().parse_args(["--model", "reaxl_v30"])
+
+    assert args.model == "reaxl_v30"
+
+
+def test_resolve_sdxl_checkpoint_uses_configured_model_directory(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+
+    checkpoint = resolve_sdxl_checkpoint(config, "reaxl_v30")
+
+    assert checkpoint == tmp_path / "models" / "reaxl_v30.safetensors"
+
+
+def test_resolve_sdxl_checkpoint_tolerates_extension(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    checkpoint = resolve_sdxl_checkpoint(config, "reaxl_v30.safetensors")
+
+    assert checkpoint == tmp_path / "models" / "reaxl_v30.safetensors"
+
+
+def test_resolve_sdxl_checkpoint_rejects_a_path(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    try:
+        resolve_sdxl_checkpoint(config, "sdxl/reaxl_v30")
+    except ValueError as exc:
+        assert "uniquement un nom" in str(exc)
+    else:
+        raise AssertionError("Un chemin de modèle aurait dû être refusé.")
+
+
+def _config(tmp_path: Path) -> AppConfig:
+    return AppConfig(
         models_root=tmp_path / "models",
         sdxl=SDXLConfig(tmp_path / "models" / "realvisxl.safetensors"),
         pulid=PuLIDConfig(
@@ -44,6 +85,10 @@ def test_metadata_contains_phase_9_manifest(tmp_path: Path) -> None:
         device=DeviceConfig(),
         source_path=tmp_path / "config.yaml",
     )
+
+
+def test_metadata_contains_phase_9_manifest(tmp_path: Path) -> None:
+    config = _config(tmp_path)
     args = build_parser().parse_args(
         [
             "--reference",

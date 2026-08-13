@@ -200,8 +200,20 @@ python scripts/test_pulid.py \
   --strength 0.8
 ```
 
+Un autre checkpoint SDXL situé dans le même dossier que le modèle configuré
+peut être sélectionné par son nom, sans l'extension `.safetensors` :
+
+```bash
+python scripts/test_pulid.py \
+  --model reaxl_v30 \
+  --reference inputs/noemie.webp \
+  --prompt "cinematic portrait of a woman standing in Tokyo at night"
+```
+
+Sans `--model`, le checkpoint déclaré dans `config/default.yaml` reste utilisé.
+
 Le JSON contient la référence, les prompts, les paramètres d'inférence, les
 checkpoints SDXL/PuLID, la révision du runtime officiel, le device, le dtype et
-les durées effectives. Le checkpoint RealVisXL utilise toujours son VAE intégré.
+les durées effectives. Le VAE du checkpoint SDXL monofichier est utilisé.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
