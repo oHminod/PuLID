@@ -117,6 +117,36 @@ def test_generate_returns_image_and_effective_parameters(
     assert result.dtype == "float32"
 
 
+def test_generate_forwards_generic_cross_attention_kwargs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="cpu",
+    )
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+    identity_embedding = object()
+
+    model.generate(
+        prompt="portrait",
+        steps=2,
+        width=64,
+        height=64,
+        cross_attention_kwargs={
+            "id_embedding": identity_embedding,
+            "id_scale": 0.8,
+        },
+    )
+
+    assert model.pipeline.generation_kwargs["cross_attention_kwargs"] == {
+        "id_embedding": identity_embedding,
+        "id_scale": 0.8,
+    }
+
+
 def test_mps_load_retries_fp32_after_non_oom_fp16_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -303,20 +304,28 @@ class SDXLModel:
         width: int,
         height: int,
         guidance_scale: float,
+        cross_attention_kwargs: Mapping[str, Any] | None,
     ) -> "Image":
         assert self.pipeline is not None
         generator = torch_module.Generator(device="cpu").manual_seed(seed)
-        with torch_module.inference_mode():
-            output = self.pipeline(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                generator=generator,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                width=width,
-                height=height,
-                num_images_per_prompt=1,
+        generation_kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "generator": generator,
+            "num_inference_steps": steps,
+            "guidance_scale": guidance_scale,
+            "width": width,
+            "height": height,
+            "num_images_per_prompt": 1,
+        }
+        if cross_attention_kwargs:
+            # Canal générique : SDXL ne connaît ni PuLID ni le producteur de ces
+            # paramètres, il les transmet seulement aux processeurs installés.
+            generation_kwargs["cross_attention_kwargs"] = dict(
+                cross_attention_kwargs
             )
+        with torch_module.inference_mode():
+            output = self.pipeline(**generation_kwargs)
         if not output.images:
             raise SDXLGenerationError("SDXL n'a retourné aucune image.")
         return output.images[0]
@@ -331,6 +340,7 @@ class SDXLModel:
         width: int = 1024,
         height: int = 1024,
         guidance_scale: float = 7.0,
+        cross_attention_kwargs: Mapping[str, Any] | None = None,
     ) -> SDXLGenerationResult:
         """Génère une image avec un éventuel second essai FP32 contrôlé sur MPS."""
 
@@ -351,6 +361,7 @@ class SDXLModel:
                 width=width,
                 height=height,
                 guidance_scale=guidance_scale,
+                cross_attention_kwargs=cross_attention_kwargs,
             )
         except RuntimeError as exc:
             can_fallback = (
@@ -359,6 +370,7 @@ class SDXLModel:
                 and self.active_dtype == torch_module.float16
                 and not self.dtype_fallback_used
                 and not _is_out_of_memory(exc)
+                and not cross_attention_kwargs
             )
             if not can_fallback:
                 raise SDXLGenerationError(f"Génération SDXL impossible : {exc}") from exc
@@ -379,6 +391,7 @@ class SDXLModel:
                     width=width,
                     height=height,
                     guidance_scale=guidance_scale,
+                    cross_attention_kwargs=None,
                 )
             except (SDXLLoadError, RuntimeError) as fallback_exc:
                 raise SDXLGenerationError(

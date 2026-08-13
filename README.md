@@ -185,4 +185,23 @@ pointe hors de la racine du SSD :
 python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
 ```
 
+## Premier test PuLID complet (phase 9)
+
+Le test complet utilise par défaut `inputs/noemie.webp`, charge tous les modèles
+hors ligne, injecte PuLID dans RealVisXL puis écrit un PNG et son manifeste JSON
+adjacent dans `outputs/` :
+
+```bash
+source .venv/bin/activate
+python scripts/test_pulid.py \
+  --reference inputs/noemie.webp \
+  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
+  --seed 42 \
+  --strength 0.8
+```
+
+Le JSON contient la référence, les prompts, les paramètres d'inférence, les
+checkpoints SDXL/PuLID, la révision du runtime officiel, le device, le dtype et
+les durées effectives. Le checkpoint RealVisXL utilise toujours son VAE intégré.
+
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
