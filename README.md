@@ -308,6 +308,19 @@ PULID_RUN_INTEGRATION=1 pytest -m integration -k insightface
 PULID_RUN_SLOW=1 pytest -m 'integration and slow'
 ```
 
+## Serveur HTTP pour frontend
+
+Le serveur local expose `GET /models` et `POST /generate`. La génération HTTP
+renvoie directement un PNG et n'écrit ni output, ni JSON, ni cache d'identité :
+
+```bash
+uv pip install -e '.[inference,pulid,server]'
+pulid-server --device mps --cors-origin http://localhost:3000
+```
+
+Le contrat complet, les champs multipart, headers de réponse et exemples
+TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
+
 ## 11. Dépannage
 
 Les erreurs CLI affichent leur type et une correction probable :

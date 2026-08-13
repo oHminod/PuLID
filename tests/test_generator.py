@@ -62,6 +62,19 @@ class FakeIdentityEncoder:
             metadata={"source_format": "WEBP"},
         )
 
+    def encode(self, image: np.ndarray, **kwargs: object) -> object:
+        self.encode_calls.append({"image": image, **kwargs})
+        return SimpleNamespace(
+            embedding=np.ones(512, dtype=np.float32),
+            face_index=0,
+            face_count=1,
+            detection=SimpleNamespace(
+                bbox=(1.0, 2.0, 15.0, 16.0),
+                score=0.99,
+            ),
+            norm=1.0,
+        )
+
 
 class FakeAdapter:
     def __init__(self) -> None:
@@ -223,6 +236,38 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert metadata["vae_duration_seconds"] == 0.04
     assert metadata["save_duration_seconds"] >= 0.0
     assert generated.save_duration_seconds >= 0.0
+
+
+def test_memory_path_never_creates_identity_or_output_files(tmp_path: Path) -> None:
+    generator, encoder, adapter, sdxl = _generator_with_fakes(tmp_path)
+
+    identity = generator.encode_identity_memory(
+        Image.new("RGB", (16, 16), "white"),
+        identity_id="Noémie",
+        source_name="<http-upload>",
+    )
+    generated = generator.generate_in_memory(
+        prompt="portrait",
+        identity=identity,
+        seed=123,
+        steps=3,
+        guidance_scale=4.5,
+        sampling_method="dpmpp_2m_sde_karras",
+    )
+
+    assert identity.id == "Noémie"
+    assert identity.cache_path is None
+    assert identity.cache_hit is False
+    assert identity.source_images == ("<http-upload>",)
+    assert encoder.cache_calls == []
+    assert encoder.encode_calls[0]["image"].shape == (16, 16, 3)
+    assert adapter.prepare_calls[0]["image"].mode == "RGB"
+    assert generated.image.size == (1024, 1024)
+    assert generated.metadata["identity_cache_path"] is None
+    assert generated.metadata["save_duration_seconds"] == 0.0
+    assert sdxl.generate_calls[0]["seed"] == 123
+    assert not generator.config.outputs_dir.exists()
+    assert not generator.config.identity_cache_dir.exists()
 
 
 def test_generate_rejects_identity_from_another_api(tmp_path: Path) -> None:

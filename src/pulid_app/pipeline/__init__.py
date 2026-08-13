@@ -5,6 +5,7 @@ from pulid_app.pipeline.generator import (
     ImageGenerationResult,
     ImageGenerator,
     ImageGeneratorError,
+    InMemoryGenerationResult,
 )
 from pulid_app.pipeline.benchmark import (
     BenchmarkError,
@@ -17,6 +18,7 @@ __all__ = (
     "ImageGenerationResult",
     "ImageGenerator",
     "ImageGeneratorError",
+    "InMemoryGenerationResult",
     "BenchmarkError",
     "BenchmarkResult",
     "BenchmarkRunner",

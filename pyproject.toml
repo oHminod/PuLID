@@ -37,13 +37,20 @@ pulid = [
   "ftfy>=6.3,<7",
   "timm>=1.0,<2",
 ]
+server = [
+  "fastapi>=0.115,<1",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.34,<1",
+]
 dev = [
+  "httpx>=0.28,<1",
   "pytest>=8.3,<10",
 ]
 
 [project.scripts]
 pulid-gen = "pulid_app.cli:main"
 pulid-inspect-models = "pulid_app.cli:inspect_main"
+pulid-server = "pulid_app.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pulid_app"]

@@ -34,11 +34,11 @@ class ImageGeneratorError(GenerationError):
 
 @dataclass(frozen=True)
 class EncodedIdentity:
-    """Identité générique mise en cache et conditionnement PuLID prêt à l'emploi."""
+    """Identité générique et conditionnement PuLID prêt à l'emploi."""
 
     character: CharacterIdentity
     conditioning: "PuLIDIdentityFeatures"
-    cache_path: Path
+    cache_path: Path | None
     cache_hit: bool
     duration_seconds: float
 
@@ -60,6 +60,14 @@ class ImageGenerationResult:
     json_path: Path
     metadata: dict[str, Any]
     save_duration_seconds: float
+
+
+@dataclass(frozen=True)
+class InMemoryGenerationResult:
+    """Image générée en mémoire, sans création de fichier ni de manifeste."""
+
+    image: "Image"
+    metadata: dict[str, Any]
 
 
 def _normalize_device(device: str) -> str:
@@ -219,6 +227,80 @@ class ImageGenerator:
             duration_seconds=time.monotonic() - started,
         )
 
+    def encode_identity_memory(
+        self,
+        image: Any,
+        *,
+        identity_id: str,
+        face_index: int | None = None,
+        source_name: str = "<memory>",
+    ) -> EncodedIdentity:
+        """Encode une image RGB en mémoire sans lire ni écrire de cache NPZ."""
+
+        import numpy as np
+        from PIL import Image as PILImage, ImageOps
+
+        from pulid_app.models.identity_encoder import IdentityEncoderError
+        from pulid_app.models.pulid_adapter import PuLIDError
+
+        selected_id = identity_id.strip()
+        if not selected_id:
+            raise ImageGeneratorError("Le nom du personnage ne peut pas être vide.")
+
+        if isinstance(image, PILImage.Image):
+            rgb_image = ImageOps.exif_transpose(image).convert("RGB")
+            rgb = np.ascontiguousarray(np.asarray(rgb_image, dtype=np.uint8))
+        elif isinstance(image, np.ndarray):
+            if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
+                raise ImageGeneratorError(
+                    "L'image en mémoire doit être RGB uint8 avec shape (H, W, 3)."
+                )
+            rgb = np.ascontiguousarray(image)
+            rgb_image = PILImage.fromarray(rgb, mode="RGB")
+        else:
+            raise ImageGeneratorError(
+                "L'image en mémoire doit être une image Pillow ou un tableau RGB uint8."
+            )
+
+        started = time.monotonic()
+        try:
+            encoded = self._get_identity_encoder().encode(
+                np.ascontiguousarray(rgb[:, :, ::-1]),
+                face_index=face_index,
+            )
+            character = CharacterIdentity(
+                id=selected_id,
+                source_images=[source_name],
+                face_embedding=encoded.embedding,
+                metadata={
+                    "source": "memory",
+                    "source_width": int(rgb.shape[1]),
+                    "source_height": int(rgb.shape[0]),
+                    "selected_face_index": encoded.face_index,
+                    "face_count": encoded.face_count,
+                    "bounding_box": list(encoded.detection.bbox),
+                    "detection_score": encoded.detection.score,
+                    "embedding_norm_l2": encoded.norm,
+                },
+            )
+            conditioning = self._get_adapter().prepare_identity(
+                rgb_image,
+                face_embedding=character.face_embedding,
+                face_index=face_index,
+            )
+        except (IdentityEncoderError, PuLIDError, OSError, ValueError) as exc:
+            raise ImageGeneratorError(
+                f"Impossible d'encoder l'identité en mémoire : {exc}"
+            ) from exc
+
+        return EncodedIdentity(
+            character=character,
+            conditioning=conditioning,
+            cache_path=None,
+            cache_hit=False,
+            duration_seconds=time.monotonic() - started,
+        )
+
     def _metadata(
         self,
         *,
@@ -243,7 +325,9 @@ class ImageGenerator:
             "reference_image": source_images[0],
             "reference_images": source_images,
             "identity_id": identity.id,
-            "identity_cache_path": str(identity.cache_path),
+            "identity_cache_path": (
+                str(identity.cache_path) if identity.cache_path is not None else None
+            ),
             "identity_cache_hit": identity.cache_hit,
             "identity_encoding_duration_seconds": identity.duration_seconds,
             "prompt": prompt,
@@ -280,7 +364,7 @@ class ImageGenerator:
             ),
         }
 
-    def generate(
+    def _generate_inference(
         self,
         *,
         prompt: str,
@@ -293,11 +377,9 @@ class ImageGenerator:
         identity_strength: float = 0.8,
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
-        output_prefix: str = "pulid",
-        output_dir: str | Path | None = None,
         collect_timings: bool = False,
-    ) -> ImageGenerationResult:
-        """Génère puis sauvegarde automatiquement le PNG et son manifeste JSON."""
+    ) -> tuple[Any, dict[str, Any]]:
+        """Exécute l'inférence commune sans effectuer d'entrée/sortie applicative."""
 
         if not isinstance(identity, EncodedIdentity):
             raise ImageGeneratorError(
@@ -348,23 +430,91 @@ class ImageGenerator:
                 result=result,
                 pipeline_duration_seconds=pipeline_duration,
             )
-            save_started = time.monotonic()
-            png_path, json_path = save_image_with_metadata(
-                result.image,
-                metadata,
-                output_dir or self.config.outputs_dir,
-                prefix=output_prefix,
-            )
-            save_duration = time.monotonic() - save_started
-            metadata["save_duration_seconds"] = save_duration
-            metadata["total_duration_seconds"] += save_duration
-            # Le manifeste initial permet de mesurer l'écriture complète PNG+JSON ;
-            # cette seconde écriture atomique ne fait que persister la mesure.
-            save_json_metadata(json_path, metadata)
         except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
             if isinstance(exc, ImageGeneratorError):
                 raise
             raise ImageGeneratorError(f"Génération PuLID impossible : {exc}") from exc
+
+        return result, metadata
+
+    def generate_in_memory(
+        self,
+        *,
+        prompt: str,
+        identity: EncodedIdentity,
+        negative_prompt: str | None = DEFAULT_NEGATIVE_PROMPT,
+        seed: int = 42,
+        width: int = 1024,
+        height: int = 1024,
+        steps: int = 20,
+        identity_strength: float = 0.8,
+        guidance_scale: float = 7.0,
+        sampling_method: str | None = None,
+        collect_timings: bool = False,
+    ) -> InMemoryGenerationResult:
+        """Génère une image sans créer de PNG, JSON ou autre artefact local."""
+
+        result, metadata = self._generate_inference(
+            prompt=prompt,
+            identity=identity,
+            negative_prompt=negative_prompt,
+            seed=seed,
+            width=width,
+            height=height,
+            steps=steps,
+            identity_strength=identity_strength,
+            guidance_scale=guidance_scale,
+            sampling_method=sampling_method,
+            collect_timings=collect_timings,
+        )
+        metadata["save_duration_seconds"] = 0.0
+        return InMemoryGenerationResult(image=result.image, metadata=metadata)
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        identity: EncodedIdentity,
+        negative_prompt: str | None = DEFAULT_NEGATIVE_PROMPT,
+        seed: int = 42,
+        width: int = 1024,
+        height: int = 1024,
+        steps: int = 20,
+        identity_strength: float = 0.8,
+        guidance_scale: float = 7.0,
+        sampling_method: str | None = None,
+        output_prefix: str = "pulid",
+        output_dir: str | Path | None = None,
+        collect_timings: bool = False,
+    ) -> ImageGenerationResult:
+        """Génère puis sauvegarde automatiquement le PNG et son manifeste JSON."""
+
+        result, metadata = self._generate_inference(
+            prompt=prompt,
+            identity=identity,
+            negative_prompt=negative_prompt,
+            seed=seed,
+            width=width,
+            height=height,
+            steps=steps,
+            identity_strength=identity_strength,
+            guidance_scale=guidance_scale,
+            sampling_method=sampling_method,
+            collect_timings=collect_timings,
+        )
+        save_started = time.monotonic()
+        png_path, json_path = save_image_with_metadata(
+            result.image,
+            metadata,
+            output_dir or self.config.outputs_dir,
+            prefix=output_prefix,
+        )
+        save_duration = time.monotonic() - save_started
+        metadata["save_duration_seconds"] = save_duration
+        metadata["total_duration_seconds"] += save_duration
+        # Le manifeste initial permet de mesurer l'écriture complète PNG+JSON ;
+        # cette seconde écriture atomique ne fait que persister la mesure.
+        save_json_metadata(json_path, metadata)
 
         return ImageGenerationResult(
             image=result.image,
