@@ -39,6 +39,7 @@ def external_cache_paths(models_root: Path) -> dict[str, Path]:
         "TRANSFORMERS_CACHE": models_root / "huggingface" / "transformers",
         "TORCH_HOME": models_root / "torch",
         "XDG_CACHE_HOME": models_root / "other",
+        "MPLCONFIGDIR": models_root / "other" / "matplotlib",
     }
 
 
@@ -54,6 +55,9 @@ def configure_external_model_caches(models_root: Path) -> Mapping[str, str]:
         value = str(path.resolve(strict=False))
         os.environ[name] = value
         configured[name] = value
+    # Albumentations effectue sinon une requête PyPI à chaque nouvel environnement.
+    os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
+    configured["NO_ALBUMENTATIONS_UPDATE"] = "1"
     return configured
 
 
@@ -115,4 +119,3 @@ def ensure_writable_directory(path: Path) -> None:
             pass
     except OSError as exc:
         raise PermissionError(f"Le dossier n'est pas accessible en écriture : {path}") from exc
-

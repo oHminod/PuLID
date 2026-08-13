@@ -69,6 +69,8 @@ def test_configure_external_model_caches(
 
     assert configured["HF_HOME"] == str(tmp_path / "huggingface")
     assert configured["TORCH_HOME"] == str(tmp_path / "torch")
+    assert configured["MPLCONFIGDIR"] == str(tmp_path / "other" / "matplotlib")
+    assert configured["NO_ALBUMENTATIONS_UPDATE"] == "1"
 
 
 def test_ensure_writable_directory_creates_directory(tmp_path: Path) -> None:
@@ -78,4 +80,3 @@ def test_ensure_writable_directory_creates_directory(tmp_path: Path) -> None:
 
     assert target.is_dir()
     assert list(target.iterdir()) == []
-

@@ -4,9 +4,10 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 et 2 fournissent le bootstrap, la configuration centralisée,
-l'inspection des modèles et la validation du backend PyTorch/MPS. L'intégration
-et le chargement effectif de SDXL/PuLID seront réalisés dans les phases suivantes.
+Les phases 1 à 3 fournissent le bootstrap, la configuration centralisée,
+l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
+faciale AntelopeV2. L'intégration de SDXL/PuLID sera réalisée dans les phases
+suivantes.
 
 ## Prérequis
 
@@ -57,5 +58,25 @@ python scripts/test_mps.py
 La sélection automatique utilise l'ordre CUDA, MPS, puis CPU. Le script affiche
 la version de PyTorch, les backends disponibles, le dtype choisi et la mémoire
 détectée avant d'exécuter une petite multiplication matricielle sur MPS.
+
+## Validation d'AntelopeV2 (phase 3)
+
+La référence du projet est une image WebP :
+
+```bash
+source .venv/bin/activate
+python scripts/test_insightface.py --image inputs/reference.webp
+```
+
+Pour enregistrer le résumé de la détection dans `cache/identity/` :
+
+```bash
+python scripts/test_insightface.py \
+  --image inputs/reference.webp \
+  --save-metadata
+```
+
+InsightFace utilise explicitement `CPUExecutionProvider` sur macOS. Si une image
+contient plusieurs visages, il faut en sélectionner un avec `--face-index N`.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
