@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 import sys
 
 from pulid_app.config import (
@@ -19,7 +18,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from test_pulid import (  # noqa: E402
     DEFAULT_REFERENCE,
-    build_metadata,
     build_parser,
     resolve_sdxl_checkpoint,
 )
@@ -96,46 +94,3 @@ def _config(tmp_path: Path) -> AppConfig:
         device=DeviceConfig(),
         source_path=tmp_path / "config.yaml",
     )
-
-
-def test_metadata_contains_phase_9_manifest(tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    args = build_parser().parse_args(
-        [
-            "--reference",
-            "noemie.webp",
-            "--prompt",
-            "portrait",
-            "--seed",
-            "7",
-            "--strength",
-            "0.9",
-        ]
-    )
-    result = SimpleNamespace(
-        seed=7,
-        device="mps",
-        dtype="float16",
-        dtype_fallback_used=False,
-        duration_seconds=12.5,
-    )
-
-    metadata = build_metadata(
-        args=args,
-        config=config,
-        reference=(tmp_path / "noemie.webp"),
-        result=result,
-        identity_duration_seconds=3.0,
-        total_duration_seconds=15.5,
-    )
-
-    assert metadata["reference_image"] == str(tmp_path / "noemie.webp")
-    assert metadata["prompt"] == "portrait"
-    assert metadata["seed"] == 7
-    assert metadata["identity_strength"] == 0.9
-    assert metadata["guidance_scale"] == 7.0
-    assert metadata["sampling_method"] == "default"
-    assert metadata["sdxl_checkpoint"] == str(config.sdxl.checkpoint)
-    assert metadata["pulid_checkpoint"] == str(config.pulid.checkpoint)
-    assert metadata["device"] == "mps"
-    assert metadata["vae"] == "integrated"

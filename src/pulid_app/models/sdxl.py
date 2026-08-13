@@ -95,6 +95,7 @@ class SDXLModel:
         self.active_dtype: Any | None = None
         self.dtype_fallback_used = False
         self.sampling_method: str | None = None
+        self._default_scheduler: Any | None = None
 
     @classmethod
     def from_config(
@@ -200,6 +201,14 @@ class SDXLModel:
         """Remplace le scheduler chargé, ou conserve celui du modèle si absent."""
 
         if method is None:
+            if self.is_loaded and self.sampling_method is not None:
+                assert self.pipeline is not None
+                if self._default_scheduler is None:
+                    raise SDXLConfigurationError(
+                        "Le scheduler d'origine du checkpoint n'est plus disponible."
+                    )
+                self.pipeline.scheduler = self._default_scheduler
+            self.sampling_method = None
             return self
         normalized = method.strip().casefold()
         if normalized not in SUPPORTED_SAMPLING_METHODS:
@@ -244,6 +253,7 @@ class SDXLModel:
                 add_watermarker=False,
             )
             pipeline = self.memory_manager.move_to_device(pipeline, self.device)
+            self._default_scheduler = pipeline.scheduler
             if self.sampling_method is not None:
                 # Un éventuel rechargement contrôlé doit conserver le scheduler
                 # demandé au lieu de revenir silencieusement à celui du modèle.
@@ -311,6 +321,7 @@ class SDXLModel:
         pipeline = self.pipeline
         self.pipeline = None
         self.active_dtype = None
+        self._default_scheduler = None
         try:
             self.memory_manager.unload(pipeline)
         except MemoryManagerError as exc:

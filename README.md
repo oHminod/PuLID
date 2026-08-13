@@ -4,12 +4,10 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 8 fournissent le bootstrap, la configuration centralisée,
-l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
-faciale AntelopeV2 avec cache d'identité générique. La génération SDXL locale
-est opérationnelle et son cycle de vie mémoire est explicite. L'adaptateur PuLID
-v1.1 et ses téléchargements auxiliaires sont désormais prêts ; la première
-génération conditionnée sera réalisée dans la phase 9.
+Les phases 1 à 10 sont opérationnelles : bootstrap, configuration centralisée,
+inspection, backends MPS/CUDA/CPU, cache d'identité AntelopeV2, SDXL local,
+gestion mémoire, adaptateur PuLID v1.1 et générateur haut niveau. Le pipeline
+complet peut être utilisé depuis Python ou par le script de test de phase 9.
 
 ## Prérequis
 
@@ -228,5 +226,41 @@ le scheduler fourni par le checkpoint est conservé. Sans `--cfg`, le CFG reste
 Le JSON contient la référence, les prompts, les paramètres d'inférence, les
 checkpoints SDXL/PuLID, la révision du runtime officiel, le device, le dtype et
 les durées effectives. Le VAE du checkpoint SDXL monofichier est utilisé.
+
+## Générateur haut niveau (phase 10)
+
+`ImageGenerator` charge les modèles au premier usage, réutilise le cache ArcFace,
+prépare le conditionnement PuLID, sélectionne le device et sauvegarde
+automatiquement un PNG et son JSON adjacent :
+
+```python
+from pulid_app.config import load_config
+from pulid_app.pipeline import ImageGenerator
+
+config = load_config()
+
+with ImageGenerator(config, device="mps") as generator:
+    identity = generator.encode_identity(
+        "inputs/noemie.webp",
+        identity_id="noemie",
+    )
+    result = generator.generate(
+        prompt="cinematic portrait of a woman standing in Tokyo at night",
+        identity=identity,
+        seed=42,
+        width=1024,
+        height=1024,
+        steps=20,
+        identity_strength=0.8,
+    )
+
+print(result.png_path)
+print(result.json_path)
+```
+
+Le contexte `with` garantit le cleanup des modèles. Sans `device`, le meilleur
+backend disponible est choisi dans l'ordre CUDA, MPS, puis CPU. Les paramètres
+`sampling_method="dpmpp_2m_sde_karras"` et `guidance_scale=...` restent
+disponibles dans `generate()`.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.

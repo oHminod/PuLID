@@ -35,6 +35,9 @@ class FakeGenerator:
 class FakePipeline:
     load_kwargs = None
 
+    def __init__(self) -> None:
+        self.scheduler = SimpleNamespace(config={"scheduler": "checkpoint"})
+
     @classmethod
     def from_single_file(cls, checkpoint: str, **kwargs):
         cls.load_kwargs = {"checkpoint": checkpoint, **kwargs}
@@ -195,6 +198,42 @@ def test_set_sampling_method_none_keeps_checkpoint_scheduler(
     model.set_sampling_method(None)
 
     assert model.pipeline.scheduler is scheduler
+    assert model.sampling_method is None
+
+
+def test_set_sampling_method_none_restores_checkpoint_scheduler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    class FakeScheduler:
+        @classmethod
+        def from_config(cls, config: object, **_kwargs: object) -> object:
+            return SimpleNamespace(config=config, custom=True)
+
+    monkeypatch.setattr(model, "_import_dpm_scheduler", lambda: FakeScheduler)
+    model.load()
+    assert model.pipeline is not None
+    checkpoint_scheduler = model.pipeline.scheduler
+    model.set_sampling_method("dpmpp_2m_sde_karras")
+
+    model.set_sampling_method(None)
+
+    assert model.pipeline.scheduler is checkpoint_scheduler
+    assert model.sampling_method is None
+
+
+def test_set_sampling_method_none_clears_pending_method_before_reload(
+    tmp_path: Path,
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    model.sampling_method = "dpmpp_2m_sde_karras"
+
+    model.set_sampling_method(None)
+
     assert model.sampling_method is None
 
 
