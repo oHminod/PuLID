@@ -57,7 +57,7 @@ def test_resolve_sdxl_checkpoint_uses_configured_model_directory(
 
     checkpoint = resolve_sdxl_checkpoint(config, "reaxl_v30")
 
-    assert checkpoint == tmp_path / "models" / "reaxl_v30.safetensors"
+    assert checkpoint == tmp_path / "models" / "checkpoints" / "reaxl_v30.safetensors"
 
 
 def test_resolve_sdxl_checkpoint_tolerates_extension(tmp_path: Path) -> None:
@@ -65,7 +65,7 @@ def test_resolve_sdxl_checkpoint_tolerates_extension(tmp_path: Path) -> None:
 
     checkpoint = resolve_sdxl_checkpoint(config, "reaxl_v30.safetensors")
 
-    assert checkpoint == tmp_path / "models" / "reaxl_v30.safetensors"
+    assert checkpoint == tmp_path / "models" / "checkpoints" / "reaxl_v30.safetensors"
 
 
 def test_resolve_sdxl_checkpoint_rejects_a_path(tmp_path: Path) -> None:
@@ -82,7 +82,9 @@ def test_resolve_sdxl_checkpoint_rejects_a_path(tmp_path: Path) -> None:
 def _config(tmp_path: Path) -> AppConfig:
     return AppConfig(
         models_root=tmp_path / "models",
-        sdxl=SDXLConfig(tmp_path / "models" / "realvisxl.safetensors"),
+        sdxl=SDXLConfig(
+            tmp_path / "models" / "checkpoints" / "realvisxl.safetensors"
+        ),
         pulid=PuLIDConfig(
             tmp_path / "models" / "pulid_v1.1.safetensors",
             source_dir=tmp_path / "models" / "sources" / "PuLID",

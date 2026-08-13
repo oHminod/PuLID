@@ -21,14 +21,16 @@ from pulid_app.paths import ANTELOPEV2_REQUIRED_FILES
 def _write_cli_config(tmp_path: Path) -> tuple[Path, Path]:
     models = tmp_path / "models"
     models.mkdir()
-    (models / "sdxl.safetensors").touch()
+    checkpoints = models / "checkpoints"
+    checkpoints.mkdir()
+    (checkpoints / "sdxl.safetensors").touch()
     (models / "pulid.safetensors").touch()
     config = tmp_path / "config.yaml"
     config.write_text(
         f"""
 models_root: {models}
 sdxl:
-  checkpoint: sdxl.safetensors
+  checkpoint: checkpoints/sdxl.safetensors
   config_dir: sdxl-config
 pulid:
   checkpoint: pulid.safetensors
@@ -49,9 +51,11 @@ device:
 
 def test_full_inspection_succeeds(tmp_path: Path) -> None:
     models = tmp_path / "models"
+    checkpoints = models / "checkpoints"
     antelope = models / "antelopev2"
     antelope.mkdir(parents=True)
-    (models / "realvisxlV50_v50LightningBakedvae.safetensors").touch()
+    checkpoints.mkdir()
+    (checkpoints / "realvisxlV50_v50LightningBakedvae.safetensors").touch()
     (models / "pulid_v1.1.safetensors").touch()
     for name in ANTELOPEV2_REQUIRED_FILES:
         (antelope / name).touch()
@@ -61,7 +65,7 @@ def test_full_inspection_succeeds(tmp_path: Path) -> None:
         f"""
 models_root: {models}
 sdxl:
-  checkpoint: realvisxlV50_v50LightningBakedvae.safetensors
+  checkpoint: checkpoints/realvisxlV50_v50LightningBakedvae.safetensors
 pulid:
   checkpoint: pulid_v1.1.safetensors
 insightface:
@@ -86,9 +90,11 @@ device:
 
 def test_inspection_can_show_and_validate_external_caches(tmp_path: Path) -> None:
     models = tmp_path / "models"
+    checkpoints = models / "checkpoints"
     antelope = models / "antelopev2"
     antelope.mkdir(parents=True)
-    (models / "sdxl.safetensors").touch()
+    checkpoints.mkdir()
+    (checkpoints / "sdxl.safetensors").touch()
     (models / "pulid_v1.1.safetensors").touch()
     for name in ANTELOPEV2_REQUIRED_FILES:
         (antelope / name).touch()
@@ -97,7 +103,7 @@ def test_inspection_can_show_and_validate_external_caches(tmp_path: Path) -> Non
         f"""
 models_root: {models}
 sdxl:
-  checkpoint: sdxl.safetensors
+  checkpoint: checkpoints/sdxl.safetensors
 pulid:
   checkpoint: pulid_v1.1.safetensors
 insightface:
@@ -202,7 +208,7 @@ def test_encode_command_uses_content_cache(tmp_path: Path) -> None:
 
 def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) -> None:
     config_path, models = _write_cli_config(tmp_path)
-    (models / "reaxl_v30.safetensors").touch()
+    (models / "checkpoints" / "reaxl_v30.safetensors").touch()
     reference = tmp_path / "noemie.webp"
     reference.write_bytes(b"image")
     calls: dict[str, object] = {}
@@ -258,7 +264,9 @@ def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) 
     )
 
     assert result == 0
-    assert calls["config"].sdxl.checkpoint == models / "reaxl_v30.safetensors"
+    assert calls["config"].sdxl.checkpoint == (
+        models / "checkpoints" / "reaxl_v30.safetensors"
+    )
     assert calls["generate"]["guidance_scale"] == 4.5
     assert calls["generate"]["sampling_method"] == "dpmpp_2m_sde_karras"
     assert calls["generate"]["seed"] == 7

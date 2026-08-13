@@ -56,7 +56,7 @@ Exemple de structure cible :
 
 ```text
 /Volumes/SSD/Documents/PuLID_models/
-├── sdxl/
+├── checkpoints/
 │   └── <checkpoint-sdxl>.safetensors
 │
 ├── pulid/
@@ -176,7 +176,7 @@ Exemple :
 models_root: /Volumes/SSD/Documents/PuLID_models
 
 sdxl:
-  checkpoint: /Volumes/SSD/Documents/PuLID_models/sdxl/MODEL.safetensors
+  checkpoint: /Volumes/SSD/Documents/PuLID_models/checkpoints/MODEL.safetensors
 
 pulid:
   checkpoint: /Volumes/SSD/Documents/PuLID_models/pulid/pulid_v1.1.safetensors

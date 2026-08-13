@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         help=(
-            "Nom d'un checkpoint SDXL placé à côté du modèle configuré, "
+            "Nom d'un checkpoint SDXL du dossier checkpoints configuré, "
             "sans l'extension .safetensors."
         ),
     )

@@ -22,7 +22,7 @@ def _config(tmp_path: Path) -> AppConfig:
     models = tmp_path / "models"
     return AppConfig(
         models_root=models,
-        sdxl=SDXLConfig(models / "realvisxl.safetensors"),
+        sdxl=SDXLConfig(models / "checkpoints" / "realvisxl.safetensors"),
         pulid=PuLIDConfig(models / "pulid_v1.1.safetensors"),
         insightface=InsightFaceConfig(models, "antelopev2"),
         outputs_dir=tmp_path / "outputs",
@@ -35,6 +35,7 @@ def _config(tmp_path: Path) -> AppConfig:
 def test_inspect_models_finds_expected_inventory(tmp_path: Path) -> None:
     config = _config(tmp_path)
     config.models_root.mkdir()
+    config.sdxl.checkpoint.parent.mkdir()
     config.sdxl.checkpoint.touch()
     config.pulid.checkpoint.touch()
     config.insightface.model_dir.mkdir()

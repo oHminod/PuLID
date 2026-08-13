@@ -61,8 +61,9 @@ Les fichiers lourds restent sous `models_root`, jamais dans le dépôt :
 
 ```text
 /Volumes/SSD/Documents/PuLID_models/
-├── realvisxlV50_v50LightningBakedvae.safetensors
-├── reaxl_v30.safetensors                 # checkpoint SDXL alternatif
+├── checkpoints/
+│   ├── realvisxlV50_v50LightningBakedvae.safetensors
+│   └── reaxl_v30.safetensors             # checkpoint SDXL alternatif
 ├── pulid_v1.1.safetensors
 ├── antelopev2/
 │   ├── 1k3d68.onnx
@@ -109,7 +110,7 @@ relatifs sont résolus depuis `models_root`, tandis que `outputs_dir` et
 models_root: /Volumes/SSD/Documents/PuLID_models
 
 sdxl:
-  checkpoint: realvisxlV50_v50LightningBakedvae.safetensors
+  checkpoint: checkpoints/realvisxlV50_v50LightningBakedvae.safetensors
   config_dir: sdxl/stable-diffusion-xl-base-1.0-config
 
 device:
@@ -233,8 +234,9 @@ pulid-gen generate \
   --seed 42
 ```
 
-Le checkpoint alternatif doit se trouver à côté du modèle configuré ; passer
-son nom sans `.safetensors`. Omettre `--model` utilise RealVisXL par défaut.
+Le checkpoint alternatif doit se trouver dans `PuLID_models/checkpoints/`, à
+côté du modèle configuré ; passer son nom sans `.safetensors`. Omettre
+`--model` utilise RealVisXL par défaut.
 
 L'API Python de haut niveau fournit le même cycle de vie :
 

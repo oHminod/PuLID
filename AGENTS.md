@@ -10,7 +10,7 @@ Ce projet fournit un pipeline Python autonome pour générer des images avec SDX
 - Conserver tous les modèles et caches volumineux sous `/Volumes/SSD/Documents/PuLID_models`.
 - Configurer les variables de cache externes avant tout import de bibliothèque susceptible de télécharger des fichiers (`torch`, `transformers`, `diffusers`, `huggingface_hub`, `insightface`).
 - Centraliser les chemins dans la configuration. Ne pas coder de chemin de checkpoint en dur dans les modules métier.
-- Le checkpoint SDXL par défaut est `realvisxlV50_v50LightningBakedvae.safetensors`. Son VAE est intégré : ne pas charger ni exiger de VAE externe.
+- Les checkpoints SDXL résident sous `/Volumes/SSD/Documents/PuLID_models/checkpoints`. Le checkpoint par défaut est `realvisxlV50_v50LightningBakedvae.safetensors`. Son VAE est intégré : ne pas charger ni exiger de VAE externe.
 - Ne jamais déclencher un téléchargement implicite de SDXL. Le chargement doit viser un fichier local explicite.
 - Écrire les générations et métadonnées dans `outputs/`, et les petits caches d'identité dans `cache/identity/`.
 - Préserver la compatibilité MPS, CUDA et CPU. InsightFace/ONNX doit pouvoir rester sur CPU sur macOS.

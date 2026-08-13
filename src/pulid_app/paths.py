@@ -162,7 +162,7 @@ def require_models_root(models_root: Path) -> Path:
 
 
 def resolve_sdxl_checkpoint(config: AppConfig, model_name: str | None) -> Path:
-    """Résout un checkpoint nommé à côté du modèle SDXL configuré."""
+    """Résout un checkpoint nommé dans le dossier du modèle SDXL configuré."""
 
     if model_name is None:
         return config.sdxl.checkpoint

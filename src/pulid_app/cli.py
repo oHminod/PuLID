@@ -285,7 +285,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate.add_argument(
         "--model",
-        help="Nom d'un checkpoint SDXL local, sans l'extension .safetensors.",
+        help=(
+            "Nom d'un checkpoint SDXL du dossier checkpoints configuré, "
+            "sans l'extension .safetensors."
+        ),
     )
     generate.add_argument("--method", choices=SAMPLING_METHODS)
     generate.add_argument(
@@ -319,7 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--device", choices=("mps", "cuda", "cpu"))
     benchmark.add_argument("--dtype", choices=("float16", "float32"))
     benchmark.add_argument("--offload", choices=OFFLOAD_STRATEGIES)
-    benchmark.add_argument("--model")
+    benchmark.add_argument(
+        "--model",
+        help=(
+            "Nom d'un checkpoint SDXL du dossier checkpoints configuré, "
+            "sans l'extension .safetensors."
+        ),
+    )
     benchmark.add_argument("--method", choices=SAMPLING_METHODS)
     benchmark.set_defaults(handler=_handle_benchmark)
     return parser

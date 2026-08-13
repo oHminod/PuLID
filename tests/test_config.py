@@ -12,7 +12,7 @@ def _write_config(path: Path, models_root: Path) -> None:
         f"""
 models_root: {models_root}
 sdxl:
-  checkpoint: sdxl/model.safetensors
+  checkpoint: checkpoints/model.safetensors
   config_dir: sdxl/config
 pulid:
   checkpoint: pulid/model.safetensors
@@ -46,7 +46,7 @@ def test_load_config_resolves_model_paths_from_models_root(
     config = load_config(config_path)
 
     assert config.models_root == models_root
-    assert config.sdxl.checkpoint == models_root / "sdxl/model.safetensors"
+    assert config.sdxl.checkpoint == models_root / "checkpoints/model.safetensors"
     assert config.sdxl.config_dir == models_root / "sdxl/config"
     assert config.pulid.checkpoint == models_root / "pulid/model.safetensors"
     assert config.pulid.source_dir == models_root / "sources/PuLID"
@@ -67,7 +67,7 @@ def test_models_root_environment_override(
     config = load_config(config_path)
 
     assert config.models_root == override
-    assert config.sdxl.checkpoint == override / "sdxl/model.safetensors"
+    assert config.sdxl.checkpoint == override / "checkpoints/model.safetensors"
 
 
 def test_missing_required_key_is_actionable(tmp_path: Path) -> None:
