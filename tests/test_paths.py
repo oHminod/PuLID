@@ -11,6 +11,7 @@ from pulid_app.config import (
 )
 from pulid_app.paths import (
     ANTELOPEV2_REQUIRED_FILES,
+    cache_env_violations,
     configure_external_model_caches,
     ensure_writable_directory,
     inspect_models,
@@ -80,3 +81,22 @@ def test_ensure_writable_directory_creates_directory(tmp_path: Path) -> None:
 
     assert target.is_dir()
     assert list(target.iterdir()) == []
+
+
+def test_cache_env_violations_reports_missing_and_outside_paths(tmp_path: Path) -> None:
+    models_root = tmp_path / "models"
+    configured = configure_external_model_caches(models_root)
+    configured.pop("TORCH_HOME")
+    configured["HF_HOME"] = str(tmp_path / "internal")
+
+    violations = cache_env_violations(models_root, configured)
+
+    assert any("TORCH_HOME n'est pas défini" in item for item in violations)
+    assert any("HF_HOME pointe hors" in item for item in violations)
+
+
+def test_configured_cache_env_is_accepted(tmp_path: Path) -> None:
+    models_root = tmp_path / "models"
+    configured = configure_external_model_caches(models_root)
+
+    assert cache_env_violations(models_root, configured) == ()

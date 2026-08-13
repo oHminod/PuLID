@@ -12,6 +12,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default.yaml"
+DEFAULT_PULID_REVISION = "1aa2fc7df4bf51080df39f355f9abdc1cbfefbaa"
 
 
 class ConfigError(ValueError):
@@ -27,6 +28,11 @@ class SDXLConfig:
 @dataclass(frozen=True)
 class PuLIDConfig:
     checkpoint: Path
+    source_dir: Path | None = None
+    revision: str = DEFAULT_PULID_REVISION
+    eva_clip_model: str = "EVA02-CLIP-L-14-336"
+    eva_clip_pretrained: str = "eva_clip"
+    facexlib_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -130,7 +136,23 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         pulid=PuLIDConfig(
             checkpoint=_model_path(
                 _require_text(pulid, "checkpoint", "pulid"), models_root
-            )
+            ),
+            source_dir=_model_path(
+                str(pulid.get("source_dir", "sources/PuLID")), models_root
+            ),
+            revision=str(
+                os.environ.get("PULID_OFFICIAL_REVISION")
+                or pulid.get("revision", DEFAULT_PULID_REVISION)
+            ).strip(),
+            eva_clip_model=str(
+                pulid.get("eva_clip_model", "EVA02-CLIP-L-14-336")
+            ).strip(),
+            eva_clip_pretrained=str(
+                pulid.get("eva_clip_pretrained", "eva_clip")
+            ).strip(),
+            facexlib_root=_model_path(
+                str(pulid.get("facexlib_root", "facexlib/weights")), models_root
+            ),
         ),
         insightface=InsightFaceConfig(
             model_root=insightface_root,

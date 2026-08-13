@@ -16,6 +16,11 @@ sdxl:
   config_dir: sdxl/config
 pulid:
   checkpoint: pulid/model.safetensors
+  source_dir: sources/PuLID
+  revision: 0123456789abcdef0123456789abcdef01234567
+  eva_clip_model: EVA02-CLIP-L-14-336
+  eva_clip_pretrained: eva_clip
+  facexlib_root: facexlib
 insightface:
   model_root: insightface
   model_name: antelopev2
@@ -43,6 +48,9 @@ def test_load_config_resolves_model_paths_from_models_root(
     assert config.sdxl.checkpoint == models_root / "sdxl/model.safetensors"
     assert config.sdxl.config_dir == models_root / "sdxl/config"
     assert config.pulid.checkpoint == models_root / "pulid/model.safetensors"
+    assert config.pulid.source_dir == models_root / "sources/PuLID"
+    assert config.pulid.revision == "0123456789abcdef0123456789abcdef01234567"
+    assert config.pulid.facexlib_root == models_root / "facexlib"
     assert config.insightface.model_dir == models_root / "insightface/antelopev2"
 
 

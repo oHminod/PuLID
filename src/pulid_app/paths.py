@@ -61,6 +61,28 @@ def configure_external_model_caches(models_root: Path) -> Mapping[str, str]:
     return configured
 
 
+def cache_env_violations(
+    models_root: Path,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[str, ...]:
+    """Signale les caches effectifs absents ou situés hors de ``models_root``."""
+
+    selected = os.environ if environ is None else environ
+    root = models_root.expanduser().resolve(strict=False)
+    violations: list[str] = []
+    for name in external_cache_paths(root):
+        raw_value = selected.get(name)
+        if not raw_value:
+            violations.append(f"{name} n'est pas défini")
+            continue
+        path = Path(raw_value).expanduser().resolve(strict=False)
+        try:
+            path.relative_to(root)
+        except ValueError:
+            violations.append(f"{name} pointe hors de models_root : {path}")
+    return tuple(violations)
+
+
 def _unique_sorted(paths: list[Path]) -> tuple[Path, ...]:
     return tuple(sorted(set(paths), key=lambda item: str(item).casefold()))
 

@@ -4,11 +4,12 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 6 fournissent le bootstrap, la configuration centralisée,
+Les phases 1 à 8 fournissent le bootstrap, la configuration centralisée,
 l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
 faciale AntelopeV2 avec cache d'identité générique. La génération SDXL locale
-est opérationnelle et son cycle de vie mémoire est explicite ; l'intégration de
-PuLID sera réalisée dans les phases suivantes.
+est opérationnelle et son cycle de vie mémoire est explicite. L'adaptateur PuLID
+v1.1 et ses téléchargements auxiliaires sont désormais prêts ; la première
+génération conditionnée sera réalisée dans la phase 9.
 
 ## Prérequis
 
@@ -30,7 +31,7 @@ Les dépendances complémentaires de génération sont regroupées dans l'extra
 `inference` :
 
 ```bash
-uv pip install -e '.[inference,dev]'
+uv pip install -e '.[inference,pulid,dev]'
 ```
 
 ## Inspection des modèles
@@ -135,6 +136,53 @@ puis vérifie les compteurs avant et après libération, sans charger de modèle
 ```bash
 source .venv/bin/activate
 python scripts/test_memory.py
+```
+
+## Adaptateur PuLID v1.1 (phases 7 et 8)
+
+L'adaptateur utilise l'architecture officielle : IDFormer produit 32 tokens
+d'identité de dimension 2048 à partir d'ArcFace et d'EVA-CLIP, puis 70
+processeurs PuLID sont injectés dans les cross-attentions de l'UNet SDXL. Le
+générateur n'importe aucune classe interne de PuLID.
+
+Le code officiel (IDFormer, EVA-CLIP et processeurs d'attention) est téléchargé
+une seule fois à une révision Git épinglée dans :
+
+```text
+/Volumes/SSD/Documents/PuLID_models/sources/PuLID
+```
+
+La commande est idempotente et ne copie rien dans ce dépôt :
+
+```bash
+source .venv/bin/activate
+python scripts/prepare_pulid.py
+python scripts/prepare_pulid.py --check-only
+```
+
+EVA-CLIP et FaceXLib conservent leurs poids téléchargés automatiquement sous
+`PuLID_models/huggingface/` et `PuLID_models/facexlib/weights/`. Ils ne sont donc
+pas recréés ni retéléchargés à chaque exécution. Pour valider le checkpoint et
+les traits de Noémie sans génération SDXL :
+
+```bash
+python scripts/test_pulid_adapter.py \
+  --device mps \
+  --reference inputs/noemie.webp \
+  --offline
+```
+
+Pour vérifier l'injection dans le véritable UNet SDXL local :
+
+```bash
+python scripts/test_pulid_adapter.py --device mps --offline --apply-sdxl
+```
+
+Enfin, l'inspection peut afficher les caches effectifs et échouer si l'un d'eux
+pointe hors de la racine du SSD :
+
+```bash
+python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
 ```
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.

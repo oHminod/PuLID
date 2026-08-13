@@ -45,3 +45,40 @@ device:
     assert "Inspection réussie" in output.getvalue()
     assert "VAE intégré" in output.getvalue()
 
+
+def test_inspection_can_show_and_validate_external_caches(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    antelope = models / "antelopev2"
+    antelope.mkdir(parents=True)
+    (models / "sdxl.safetensors").touch()
+    (models / "pulid_v1.1.safetensors").touch()
+    for name in ANTELOPEV2_REQUIRED_FILES:
+        (antelope / name).touch()
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"""
+models_root: {models}
+sdxl:
+  checkpoint: sdxl.safetensors
+pulid:
+  checkpoint: pulid_v1.1.safetensors
+insightface:
+  model_root: .
+  model_name: antelopev2
+outputs_dir: {tmp_path / 'outputs'}
+identity_cache_dir: {tmp_path / 'cache'}
+""",
+        encoding="utf-8",
+    )
+    output = StringIO()
+
+    result = run_inspection(
+        config,
+        Console(file=output, force_terminal=False),
+        show_cache_env=True,
+        fail_on_internal_cache=True,
+    )
+
+    assert result == 0
+    assert "Caches de modèles effectifs" in output.getvalue()
+    assert "Tous les caches sont sous models_root" in output.getvalue()

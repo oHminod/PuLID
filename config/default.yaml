@@ -8,6 +8,14 @@ sdxl:
 
 pulid:
   checkpoint: pulid_v1.1.safetensors
+  # Le code officiel est téléchargé ici à la révision épinglée, sans être
+  # recopié dans le dépôt applicatif.
+  source_dir: sources/PuLID
+  revision: 1aa2fc7df4bf51080df39f355f9abdc1cbfefbaa
+  eva_clip_model: EVA02-CLIP-L-14-336
+  eva_clip_pretrained: eva_clip
+  # FaceXLib reçoit explicitement cette racine pour ses poids automatiques.
+  facexlib_root: facexlib/weights
 
 insightface:
   model_root: .

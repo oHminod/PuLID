@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import shutil
 
 from rich.console import Console
 from rich.table import Table
 
-from pulid_app.config import ConfigError, load_config
+from pulid_app.config import AppConfig, ConfigError, load_config
 from pulid_app.paths import (
+    cache_env_violations,
     configure_external_model_caches,
     ensure_writable_directory,
+    external_cache_paths,
     inspect_models,
 )
 
@@ -25,6 +28,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         help="Fichier YAML à utiliser à la place de config/default.yaml.",
+    )
+    parser.add_argument(
+        "--show-cache-env",
+        action="store_true",
+        help="Affiche les emplacements effectifs des caches de modèles.",
+    )
+    parser.add_argument(
+        "--fail-on-internal-cache",
+        action="store_true",
+        help="Échoue si un cache effectif se trouve hors de models_root.",
     )
     return parser
 
@@ -39,7 +52,22 @@ def _format_bytes(value: int) -> str:
     return f"{amount:.1f} Tio"
 
 
-def run_inspection(config_path: Path | None, console: Console) -> int:
+def _print_cache_env(config: AppConfig, console: Console) -> None:
+    table = Table(title="Caches de modèles effectifs")
+    table.add_column("Variable")
+    table.add_column("Chemin", overflow="fold")
+    for name in external_cache_paths(config.models_root):
+        table.add_row(name, os.environ.get(name, "absent"))
+    console.print(table)
+
+
+def run_inspection(
+    config_path: Path | None,
+    console: Console,
+    *,
+    show_cache_env: bool = False,
+    fail_on_internal_cache: bool = False,
+) -> int:
     try:
         config = load_config(config_path)
     except ConfigError as exc:
@@ -51,6 +79,16 @@ def run_inspection(config_path: Path | None, console: Console) -> int:
     console.print(f"Racine modèles : [cyan]{config.models_root}[/]")
 
     failures: list[str] = []
+    if show_cache_env or fail_on_internal_cache:
+        _print_cache_env(config, console)
+    cache_failures = cache_env_violations(config.models_root)
+    if fail_on_internal_cache and cache_failures:
+        console.print("[red]✗ Cache(s) hors du SSD configuré :[/]")
+        for failure in cache_failures:
+            console.print(f"  • {failure}")
+        failures.append("cache_env")
+    elif fail_on_internal_cache:
+        console.print("[green]✓ Tous les caches sont sous models_root.[/]")
     if not config.models_root.is_dir():
         console.print("[red]✗ La racine des modèles n'existe pas ou n'est pas un dossier.[/]")
         failures.append("models_root")
@@ -122,5 +160,9 @@ def run_inspection(config_path: Path | None, console: Console) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return run_inspection(args.config, Console())
-
+    return run_inspection(
+        args.config,
+        Console(),
+        show_cache_env=args.show_cache_env,
+        fail_on_internal_cache=args.fail_on_internal_cache,
+    )
