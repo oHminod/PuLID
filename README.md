@@ -209,12 +209,14 @@ Pour employer ReaXL, fournir seulement le nom sans extension :
 ```bash
 python scripts/test_pulid.py \
   --model reaxl_v30 \
-  --method dpmpp_2m_sde_karras \
+  --method dpmpp_2m_sde \
+  --sigmas karras \
   --cfg 4.5
 ```
 
-Sans `--model`, `--method` ou `--cfg`, le modèle, le scheduler et le CFG
-préconfigurés restent inchangés.
+La méthode de sampling et la courbe de sigmas sont indépendantes. Sans
+`--model`, `--method` ou `--cfg`, le modèle, le scheduler et le CFG
+préconfigurés restent inchangés ; `--sigmas` vaut `normal` par défaut.
 
 ## 10. Génération finale
 
@@ -227,7 +229,8 @@ pulid-gen generate \
   --character noemie \
   --prompt "cinematic portrait of a woman standing in Tokyo at night" \
   --model reaxl_v30 \
-  --method dpmpp_2m_sde_karras \
+  --method dpmpp_2m_sde \
+  --sigmas karras \
   --cfg 4.5 \
   --strength 0.8 \
   --steps 20 \
@@ -257,6 +260,8 @@ with ImageGenerator(config, device="mps") as generator:
         seed=42,
         steps=20,
         identity_strength=0.8,
+        sampling_method="dpmpp_2m_sde",
+        sigma_schedule="karras",
     )
 
 print(result.png_path)
@@ -288,7 +293,8 @@ pulid-gen benchmark \
   --prompt "cinematic portrait" \
   --runs 3 \
   --model reaxl_v30 \
-  --method dpmpp_2m_sde_karras \
+  --method dpmpp_2m_sde \
+  --sigmas karras \
   --cfg 4.5
 ```
 

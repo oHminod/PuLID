@@ -110,7 +110,7 @@ class FakeSDXL:
     def __init__(self) -> None:
         self.pipeline = SimpleNamespace(name="pipeline")
         self.load_calls = 0
-        self.sampling_calls: list[str | None] = []
+        self.sampling_calls: list[tuple[str | None, str | None]] = []
         self.generate_calls: list[dict] = []
         self.close_calls = 0
 
@@ -118,8 +118,12 @@ class FakeSDXL:
         self.load_calls += 1
         return self
 
-    def set_sampling_method(self, method: str | None) -> "FakeSDXL":
-        self.sampling_calls.append(method)
+    def set_sampling(
+        self,
+        method: str | None,
+        sigma_schedule: str | None,
+    ) -> "FakeSDXL":
+        self.sampling_calls.append((method, sigma_schedule))
         return self
 
     def generate(self, **kwargs: object) -> object:
@@ -209,14 +213,15 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
         steps=3,
         identity_strength=0.9,
         guidance_scale=4.5,
-        sampling_method="dpmpp_2m_sde_karras",
+        sampling_method="dpmpp_2m_sde",
+        sigma_schedule="karras",
     )
 
     assert generated.png_path.is_file()
     assert generated.json_path.is_file()
     assert generated.png_path.stem == generated.json_path.stem
     assert generated.image.size == (64, 64)
-    assert sdxl.sampling_calls == ["dpmpp_2m_sde_karras"]
+    assert sdxl.sampling_calls == [("dpmpp_2m_sde", "karras")]
     assert sdxl.generate_calls[0]["seed"] == 7
     assert sdxl.generate_calls[0]["guidance_scale"] == 4.5
     assert sdxl.generate_calls[0]["cross_attention_kwargs"]["cfg"] is True
@@ -227,7 +232,8 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert metadata["identity_id"] == "noemie"
     assert metadata["identity_cache_hit"] is True
     assert metadata["seed"] == 7
-    assert metadata["sampling_method"] == "dpmpp_2m_sde_karras"
+    assert metadata["sampling_method"] == "dpmpp_2m_sde"
+    assert metadata["sigma_schedule"] == "karras"
     assert metadata["sdxl_checkpoint"] == str(generator.config.sdxl.checkpoint)
     assert metadata["vae"] == "integrated"
     assert metadata["offload_strategy"] == "none"
@@ -252,7 +258,8 @@ def test_memory_path_never_creates_identity_or_output_files(tmp_path: Path) -> N
         seed=123,
         steps=3,
         guidance_scale=4.5,
-        sampling_method="dpmpp_2m_sde_karras",
+        sampling_method="dpmpp_2m_sde",
+        sigma_schedule="exponential",
     )
 
     assert identity.id == "Noémie"
@@ -264,6 +271,8 @@ def test_memory_path_never_creates_identity_or_output_files(tmp_path: Path) -> N
     assert adapter.prepare_calls[0]["image"].mode == "RGB"
     assert generated.image.size == (1024, 1024)
     assert generated.metadata["identity_cache_path"] is None
+    assert generated.metadata["sampling_method"] == "dpmpp_2m_sde"
+    assert generated.metadata["sigma_schedule"] == "exponential"
     assert generated.metadata["save_duration_seconds"] == 0.0
     assert sdxl.generate_calls[0]["seed"] == 123
     assert not generator.config.outputs_dir.exists()

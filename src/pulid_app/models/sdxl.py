@@ -38,7 +38,84 @@ REQUIRED_SDXL_CONFIG_FILES = (
     "unet/config.json",
     "vae/config.json",
 )
-SUPPORTED_SAMPLING_METHODS = frozenset({"dpmpp_2m_sde_karras"})
+NORMAL_SIGMA_SCHEDULE = "normal"
+SIGMA_SCHEDULE_ARGUMENTS: dict[str, dict[str, bool]] = {
+    NORMAL_SIGMA_SCHEDULE: {},
+    "karras": {"use_karras_sigmas": True},
+    "exponential": {"use_exponential_sigmas": True},
+    "beta": {"use_beta_sigmas": True},
+}
+SUPPORTED_SIGMA_SCHEDULES = frozenset(SIGMA_SCHEDULE_ARGUMENTS)
+SIGMA_SCHEDULE_FLAGS = (
+    "use_karras_sigmas",
+    "use_exponential_sigmas",
+    "use_beta_sigmas",
+)
+
+
+@dataclass(frozen=True)
+class SamplingMethodSpec:
+    """Implémentation Diffusers et courbes de sigmas compatibles."""
+
+    label: str
+    scheduler_class_name: str
+    scheduler_arguments: Mapping[str, Any]
+    supported_sigma_schedules: frozenset[str]
+
+
+_ALL_SIGMA_SCHEDULES = frozenset(SIGMA_SCHEDULE_ARGUMENTS)
+_NORMAL_SIGMAS_ONLY = frozenset({NORMAL_SIGMA_SCHEDULE})
+SAMPLING_METHOD_SPECS: dict[str, SamplingMethodSpec] = {
+    "dpmpp_2m": SamplingMethodSpec(
+        label="DPM++ 2M",
+        scheduler_class_name="DPMSolverMultistepScheduler",
+        scheduler_arguments={"algorithm_type": "dpmsolver++", "solver_order": 2},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "dpmpp_2m_sde": SamplingMethodSpec(
+        label="DPM++ 2M SDE",
+        scheduler_class_name="DPMSolverMultistepScheduler",
+        scheduler_arguments={"algorithm_type": "sde-dpmsolver++", "solver_order": 2},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "dpmpp_3m_sde": SamplingMethodSpec(
+        label="DPM++ 3M SDE",
+        scheduler_class_name="DPMSolverMultistepScheduler",
+        scheduler_arguments={"algorithm_type": "sde-dpmsolver++", "solver_order": 3},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "euler": SamplingMethodSpec(
+        label="Euler",
+        scheduler_class_name="EulerDiscreteScheduler",
+        scheduler_arguments={},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "euler_ancestral": SamplingMethodSpec(
+        label="Euler ancestral",
+        scheduler_class_name="EulerAncestralDiscreteScheduler",
+        scheduler_arguments={},
+        supported_sigma_schedules=_NORMAL_SIGMAS_ONLY,
+    ),
+    "heun": SamplingMethodSpec(
+        label="Heun",
+        scheduler_class_name="HeunDiscreteScheduler",
+        scheduler_arguments={},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "lms": SamplingMethodSpec(
+        label="LMS",
+        scheduler_class_name="LMSDiscreteScheduler",
+        scheduler_arguments={},
+        supported_sigma_schedules=_ALL_SIGMA_SCHEDULES,
+    ),
+    "ddim": SamplingMethodSpec(
+        label="DDIM",
+        scheduler_class_name="DDIMScheduler",
+        scheduler_arguments={},
+        supported_sigma_schedules=_NORMAL_SIGMAS_ONLY,
+    ),
+}
+SUPPORTED_SAMPLING_METHODS = frozenset(SAMPLING_METHOD_SPECS)
 SUPPORTED_OFFLOAD_STRATEGIES = frozenset({"none", "model_cpu_offload"})
 
 
@@ -185,6 +262,7 @@ class SDXLModel:
         self.active_dtype: Any | None = None
         self.dtype_fallback_used = False
         self.sampling_method: str | None = None
+        self.sigma_schedule: str | None = None
         self._default_scheduler: Any | None = None
 
     @classmethod
@@ -292,42 +370,107 @@ class SDXLModel:
             ) from exc
         return torch, StableDiffusionXLPipeline
 
-    def _import_dpm_scheduler(self) -> Any:
+    def _import_scheduler_class(self, class_name: str) -> Any:
         configure_external_model_caches(self.models_root)
         try:
-            from diffusers import DPMSolverMultistepScheduler
+            import diffusers
         except ImportError as exc:
             raise SDXLLoadError(
-                "Le scheduler DPM++ est indisponible. Activez .venv puis "
+                "Les schedulers Diffusers sont indisponibles. Activez .venv puis "
                 "réinstallez les dépendances d'inférence."
             ) from exc
-        return DPMSolverMultistepScheduler
+        try:
+            return getattr(diffusers, class_name)
+        except AttributeError as exc:
+            raise SDXLLoadError(
+                f"Le scheduler Diffusers {class_name} est indisponible. "
+                "Réinstallez les dépendances d'inférence."
+            ) from exc
 
-    def _replace_scheduler(self, pipeline: Any, method: str) -> None:
-        if method != "dpmpp_2m_sde_karras":
+    @staticmethod
+    def _normalize_sigma_schedule(sigma_schedule: str | None) -> str:
+        normalized = (
+            sigma_schedule.strip().casefold()
+            if sigma_schedule is not None
+            else NORMAL_SIGMA_SCHEDULE
+        )
+        if normalized not in SUPPORTED_SIGMA_SCHEDULES:
+            supported = ", ".join(sorted(SUPPORTED_SIGMA_SCHEDULES))
+            raise SDXLConfigurationError(
+                f"Courbe de sigmas inconnue : {sigma_schedule!r}. "
+                f"Valeurs acceptées : {supported}."
+            )
+        return normalized
+
+    @staticmethod
+    def supported_sigmas_for(method: str | None) -> frozenset[str]:
+        """Retourne les courbes compatibles sans charger de modèle."""
+
+        if method is None:
+            return _NORMAL_SIGMAS_ONLY
+        normalized = method.strip().casefold()
+        try:
+            return SAMPLING_METHOD_SPECS[normalized].supported_sigma_schedules
+        except KeyError as exc:
             supported = ", ".join(sorted(SUPPORTED_SAMPLING_METHODS))
             raise SDXLConfigurationError(
                 f"Méthode de sampling inconnue : {method!r}. "
                 f"Valeurs acceptées : {supported}."
+            ) from exc
+
+    def _replace_scheduler(
+        self,
+        pipeline: Any,
+        method: str,
+        sigma_schedule: str,
+    ) -> None:
+        try:
+            spec = SAMPLING_METHOD_SPECS[method]
+        except KeyError as exc:
+            supported = ", ".join(sorted(SUPPORTED_SAMPLING_METHODS))
+            raise SDXLConfigurationError(
+                f"Méthode de sampling inconnue : {method!r}. "
+                f"Valeurs acceptées : {supported}."
+            ) from exc
+        if sigma_schedule not in spec.supported_sigma_schedules:
+            supported = ", ".join(sorted(spec.supported_sigma_schedules))
+            raise SDXLConfigurationError(
+                f"La courbe de sigmas {sigma_schedule!r} est incompatible avec "
+                f"la méthode {method!r}. Valeurs acceptées : {supported}."
             )
-        scheduler_class = self._import_dpm_scheduler()
+
+        scheduler_class = self._import_scheduler_class(spec.scheduler_class_name)
+        arguments = dict(spec.scheduler_arguments)
+        if spec.supported_sigma_schedules != _NORMAL_SIGMAS_ONLY:
+            arguments.update({flag: False for flag in SIGMA_SCHEDULE_FLAGS})
+            arguments.update(SIGMA_SCHEDULE_ARGUMENTS[sigma_schedule])
+        source_scheduler = self._default_scheduler or pipeline.scheduler
         try:
             pipeline.scheduler = scheduler_class.from_config(
-                pipeline.scheduler.config,
-                algorithm_type="sde-dpmsolver++",
-                solver_order=2,
-                use_karras_sigmas=True,
+                source_scheduler.config,
+                **arguments,
             )
         except Exception as exc:
             raise SDXLConfigurationError(
                 "Impossible de configurer le sampling "
-                f"{method!r} depuis le scheduler du checkpoint : {exc}"
+                f"{method!r} avec les sigmas {sigma_schedule!r} depuis le "
+                f"scheduler du checkpoint : {exc}"
             ) from exc
 
-    def set_sampling_method(self, method: str | None) -> "SDXLModel":
-        """Remplace le scheduler chargé, ou conserve celui du modèle si absent."""
+    def set_sampling(
+        self,
+        method: str | None,
+        sigma_schedule: str | None = None,
+    ) -> "SDXLModel":
+        """Sélectionne indépendamment l'algorithme et sa courbe de sigmas."""
 
+        normalized_sigma = self._normalize_sigma_schedule(sigma_schedule)
         if method is None:
+            if normalized_sigma != NORMAL_SIGMA_SCHEDULE:
+                raise SDXLConfigurationError(
+                    f"La courbe de sigmas {normalized_sigma!r} nécessite une "
+                    "méthode de sampling explicite."
+                )
             if self.is_loaded and self.sampling_method is not None:
                 assert self.pipeline is not None
                 if self._default_scheduler is None:
@@ -336,19 +479,35 @@ class SDXLModel:
                     )
                 self.pipeline.scheduler = self._default_scheduler
             self.sampling_method = None
+            self.sigma_schedule = None
             return self
         normalized = method.strip().casefold()
-        if normalized not in SUPPORTED_SAMPLING_METHODS:
-            supported = ", ".join(sorted(SUPPORTED_SAMPLING_METHODS))
+        compatible_sigmas = self.supported_sigmas_for(normalized)
+        if normalized_sigma not in compatible_sigmas:
+            supported = ", ".join(sorted(compatible_sigmas))
             raise SDXLConfigurationError(
-                f"Méthode de sampling inconnue : {method!r}. "
-                f"Valeurs acceptées : {supported}."
+                f"La courbe de sigmas {normalized_sigma!r} est incompatible avec "
+                f"la méthode {normalized!r}. Valeurs acceptées : {supported}."
             )
         self.load()
         assert self.pipeline is not None
-        self._replace_scheduler(self.pipeline, normalized)
+        self._replace_scheduler(self.pipeline, normalized, normalized_sigma)
         self.sampling_method = normalized
+        self.sigma_schedule = normalized_sigma
         return self
+
+    def set_sampling_method(self, method: str | None) -> "SDXLModel":
+        """Compatibilité Python : modifie la méthode en conservant les sigmas."""
+
+        return self.set_sampling(
+            method,
+            self.sigma_schedule if method is not None else None,
+        )
+
+    def set_sigma_schedule(self, sigma_schedule: str | None) -> "SDXLModel":
+        """Compatibilité Python : modifie les sigmas de la méthode courante."""
+
+        return self.set_sampling(self.sampling_method, sigma_schedule)
 
     def _resolve_dtype(self, torch_module: Any) -> Any:
         if self.device == "cpu":
@@ -384,7 +543,11 @@ class SDXLModel:
             if self.sampling_method is not None:
                 # Un éventuel rechargement contrôlé doit conserver le scheduler
                 # demandé au lieu de revenir silencieusement à celui du modèle.
-                self._replace_scheduler(pipeline, self.sampling_method)
+                self._replace_scheduler(
+                    pipeline,
+                    self.sampling_method,
+                    self.sigma_schedule or NORMAL_SIGMA_SCHEDULE,
+                )
             if self.device == "mps":
                 # Réduit le pic mémoire du calcul d'attention au prix d'un peu de débit.
                 pipeline.enable_attention_slicing("auto")

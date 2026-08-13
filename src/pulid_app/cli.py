@@ -21,6 +21,10 @@ from pulid_app.exceptions import (
     PuLIDAppError,
     actionable_error,
 )
+from pulid_app.models.sdxl import (
+    SAMPLING_METHOD_SPECS,
+    SIGMA_SCHEDULE_ARGUMENTS,
+)
 from pulid_app.paths import (
     cache_env_violations,
     configure_external_model_caches,
@@ -36,7 +40,8 @@ DEFAULT_NEGATIVE_PROMPT = (
     "flaws in the eyes, flaws in the face, low quality, worst quality, "
     "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
 )
-SAMPLING_METHODS = ("dpmpp_2m_sde_karras",)
+SAMPLING_METHODS = tuple(SAMPLING_METHOD_SPECS)
+SIGMA_SCHEDULES = tuple(SIGMA_SCHEDULE_ARGUMENTS)
 OFFLOAD_STRATEGIES = ("none", "model_cpu_offload")
 
 
@@ -291,6 +296,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     generate.add_argument("--method", choices=SAMPLING_METHODS)
+    generate.add_argument("--sigmas", choices=SIGMA_SCHEDULES, default="normal")
     generate.add_argument(
         "--force-identity",
         action="store_true",
@@ -330,6 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     benchmark.add_argument("--method", choices=SAMPLING_METHODS)
+    benchmark.add_argument("--sigmas", choices=SIGMA_SCHEDULES, default="normal")
     benchmark.set_defaults(handler=_handle_benchmark)
     return parser
 
@@ -467,6 +474,7 @@ def run_generate(
             identity_strength=args.strength,
             guidance_scale=args.guidance_scale,
             sampling_method=args.method,
+            sigma_schedule=args.sigmas,
         )
     except PuLIDAppError as exc:
         _print_actionable_error(console, exc)
@@ -542,6 +550,7 @@ def run_benchmark(
             identity_strength=args.strength,
             guidance_scale=args.guidance_scale,
             sampling_method=args.method,
+            sigma_schedule=args.sigmas,
         )
     except BenchmarkError as exc:
         _print_actionable_error(console, exc)

@@ -277,7 +277,7 @@ def test_generate_collects_prompt_diffusion_and_vae_timings(
     assert "decode" not in vars(model.pipeline.vae)
 
 
-def test_set_sampling_method_configures_dpmpp_2m_sde_karras(
+def test_set_sampling_configures_dpmpp_2m_sde_and_karras_separately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
@@ -291,24 +291,123 @@ def test_set_sampling_method_configures_dpmpp_2m_sde_karras(
             calls.append((config, kwargs))
             return SimpleNamespace(config=config, configured=kwargs)
 
-    monkeypatch.setattr(model, "_import_dpm_scheduler", lambda: FakeScheduler)
+    imported_classes: list[str] = []
+
+    def import_scheduler(class_name: str):
+        imported_classes.append(class_name)
+        return FakeScheduler
+
+    monkeypatch.setattr(model, "_import_scheduler_class", import_scheduler)
     model.load()
-    assert model.pipeline is not None
-    model.pipeline.scheduler = SimpleNamespace(config={"beta_schedule": "scaled_linear"})
 
-    model.set_sampling_method("dpmpp_2m_sde_karras")
+    model.set_sampling("dpmpp_2m_sde", "karras")
 
-    assert model.sampling_method == "dpmpp_2m_sde_karras"
+    assert model.sampling_method == "dpmpp_2m_sde"
+    assert model.sigma_schedule == "karras"
+    assert imported_classes == ["DPMSolverMultistepScheduler"]
     assert calls == [
         (
-            {"beta_schedule": "scaled_linear"},
+            {"scheduler": "checkpoint"},
             {
                 "algorithm_type": "sde-dpmsolver++",
                 "solver_order": 2,
                 "use_karras_sigmas": True,
+                "use_exponential_sigmas": False,
+                "use_beta_sigmas": False,
             },
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("method", "scheduler_class"),
+    [
+        ("dpmpp_2m", "DPMSolverMultistepScheduler"),
+        ("dpmpp_3m_sde", "DPMSolverMultistepScheduler"),
+        ("euler", "EulerDiscreteScheduler"),
+        ("euler_ancestral", "EulerAncestralDiscreteScheduler"),
+        ("heun", "HeunDiscreteScheduler"),
+        ("lms", "LMSDiscreteScheduler"),
+        ("ddim", "DDIMScheduler"),
+    ],
+)
+def test_set_sampling_supports_additional_methods(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    scheduler_class: str,
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    class FakeScheduler:
+        @classmethod
+        def from_config(cls, config: object, **kwargs: object) -> object:
+            return SimpleNamespace(config=config, configured=kwargs)
+
+    imported_classes: list[str] = []
+
+    def import_scheduler(class_name: str):
+        imported_classes.append(class_name)
+        return FakeScheduler
+
+    monkeypatch.setattr(model, "_import_scheduler_class", import_scheduler)
+
+    model.set_sampling(method, "normal")
+
+    assert imported_classes == [scheduler_class]
+    assert model.sampling_method == method
+    assert model.sigma_schedule == "normal"
+
+
+@pytest.mark.parametrize(
+    ("sigma_schedule", "enabled_flag"),
+    [
+        ("normal", None),
+        ("karras", "use_karras_sigmas"),
+        ("exponential", "use_exponential_sigmas"),
+        ("beta", "use_beta_sigmas"),
+    ],
+)
+def test_set_sampling_configures_each_sigma_schedule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sigma_schedule: str,
+    enabled_flag: str | None,
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+    configured: dict[str, object] = {}
+
+    class FakeScheduler:
+        @classmethod
+        def from_config(cls, config: object, **kwargs: object) -> object:
+            configured.update(kwargs)
+            return SimpleNamespace(config=config, configured=kwargs)
+
+    monkeypatch.setattr(
+        model,
+        "_import_scheduler_class",
+        lambda _class_name: FakeScheduler,
+    )
+
+    model.set_sampling("euler", sigma_schedule)
+
+    sigma_flags = {
+        name: configured[name]
+        for name in (
+            "use_karras_sigmas",
+            "use_exponential_sigmas",
+            "use_beta_sigmas",
+        )
+    }
+    assert sum(value is True for value in sigma_flags.values()) == (
+        0 if enabled_flag is None else 1
+    )
+    if enabled_flag is not None:
+        assert sigma_flags[enabled_flag] is True
 
 
 def test_set_sampling_method_none_keeps_checkpoint_scheduler(
@@ -340,16 +439,21 @@ def test_set_sampling_method_none_restores_checkpoint_scheduler(
         def from_config(cls, config: object, **_kwargs: object) -> object:
             return SimpleNamespace(config=config, custom=True)
 
-    monkeypatch.setattr(model, "_import_dpm_scheduler", lambda: FakeScheduler)
+    monkeypatch.setattr(
+        model,
+        "_import_scheduler_class",
+        lambda _class_name: FakeScheduler,
+    )
     model.load()
     assert model.pipeline is not None
     checkpoint_scheduler = model.pipeline.scheduler
-    model.set_sampling_method("dpmpp_2m_sde_karras")
+    model.set_sampling("dpmpp_2m_sde", "karras")
 
     model.set_sampling_method(None)
 
     assert model.pipeline.scheduler is checkpoint_scheduler
     assert model.sampling_method is None
+    assert model.sigma_schedule is None
 
 
 def test_set_sampling_method_none_clears_pending_method_before_reload(
@@ -357,11 +461,13 @@ def test_set_sampling_method_none_clears_pending_method_before_reload(
 ) -> None:
     checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
     model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
-    model.sampling_method = "dpmpp_2m_sde_karras"
+    model.sampling_method = "dpmpp_2m_sde"
+    model.sigma_schedule = "karras"
 
     model.set_sampling_method(None)
 
     assert model.sampling_method is None
+    assert model.sigma_schedule is None
 
 
 def test_set_sampling_method_rejects_unknown_name(tmp_path: Path) -> None:
@@ -370,6 +476,18 @@ def test_set_sampling_method_rejects_unknown_name(tmp_path: Path) -> None:
 
     with pytest.raises(SDXLConfigurationError, match="Méthode de sampling inconnue"):
         model.set_sampling_method("euler_custom")
+
+
+def test_set_sampling_rejects_unknown_or_incompatible_sigmas(tmp_path: Path) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+
+    with pytest.raises(SDXLConfigurationError, match="Courbe de sigmas inconnue"):
+        model.set_sampling("euler", "custom")
+    with pytest.raises(SDXLConfigurationError, match="incompatible"):
+        model.set_sampling("euler_ancestral", "karras")
+    with pytest.raises(SDXLConfigurationError, match="nécessite une méthode"):
+        model.set_sampling(None, "karras")
 
 
 def test_mps_load_retries_fp32_after_non_oom_fp16_error(

@@ -30,7 +30,12 @@ from pulid_app.exceptions import (
     actionable_error,
 )
 from pulid_app.models.identity_encoder import SUPPORTED_IMAGE_FORMATS
-from pulid_app.models.sdxl import SUPPORTED_SAMPLING_METHODS
+from pulid_app.models.sdxl import (
+    NORMAL_SIGMA_SCHEDULE,
+    SAMPLING_METHOD_SPECS,
+    SUPPORTED_SAMPLING_METHODS,
+    SUPPORTED_SIGMA_SCHEDULES,
+)
 from pulid_app.paths import (
     configure_external_model_caches,
     require_models_root,
@@ -40,6 +45,12 @@ from pulid_app.pipeline.generator import ImageGenerator
 
 
 DEFAULT_METHOD = "default"
+DEFAULT_SIGMAS = NORMAL_SIGMA_SCHEDULE
+SIGMA_SCHEDULE_ORDER = tuple(
+    name
+    for name in ("normal", "karras", "exponential", "beta")
+    if name in SUPPORTED_SIGMA_SCHEDULES
+)
 DEFAULT_WIDTH = 1024
 DEFAULT_HEIGHT = 1024
 DEFAULT_IDENTITY_STRENGTH = 0.8
@@ -54,6 +65,7 @@ class GeneratedPayload:
     seed: int
     model: str
     method: str
+    sigmas: str
 
 
 def list_sdxl_models(config: AppConfig) -> list[dict[str, Any]]:
@@ -85,13 +97,57 @@ def list_sampling_methods() -> list[dict[str, Any]]:
             "name": DEFAULT_METHOD,
             "label": "Scheduler du checkpoint",
             "default": True,
+            "supported_sigma_schedules": [DEFAULT_SIGMAS],
         }
     ]
     methods.extend(
-        {"name": name, "label": name, "default": False}
-        for name in sorted(SUPPORTED_SAMPLING_METHODS)
+        {
+            "name": name,
+            "label": spec.label,
+            "default": False,
+            "supported_sigma_schedules": [
+                schedule
+                for schedule in SIGMA_SCHEDULE_ORDER
+                if schedule in spec.supported_sigma_schedules
+            ],
+        }
+        for name, spec in SAMPLING_METHOD_SPECS.items()
     )
     return methods
+
+
+def list_sigma_schedules() -> list[dict[str, Any]]:
+    """Expose les courbes de sigmas indépendamment des méthodes de sampling."""
+
+    labels = {
+        NORMAL_SIGMA_SCHEDULE: "Normal / natif",
+        "karras": "Karras",
+        "exponential": "Exponentiel",
+        "beta": "Beta",
+    }
+    method_names = [DEFAULT_METHOD, *SAMPLING_METHOD_SPECS]
+    schedules: list[dict[str, Any]] = []
+    for name in SIGMA_SCHEDULE_ORDER:
+        compatible_methods = [
+            method
+            for method in method_names
+            if name in _supported_sigmas_for_http_method(method)
+        ]
+        schedules.append(
+            {
+                "name": name,
+                "label": labels[name],
+                "default": name == DEFAULT_SIGMAS,
+                "supported_sampling_methods": compatible_methods,
+            }
+        )
+    return schedules
+
+
+def _supported_sigmas_for_http_method(method: str) -> frozenset[str]:
+    if method == DEFAULT_METHOD:
+        return frozenset({DEFAULT_SIGMAS})
+    return SAMPLING_METHOD_SPECS[method].supported_sigma_schedules
 
 
 def resolve_generation_seed(
@@ -166,6 +222,31 @@ def _sampling_method(value: str) -> str | None:
     return normalized
 
 
+def _sigma_schedule(value: str) -> str | None:
+    normalized = value.strip().casefold()
+    if normalized not in SUPPORTED_SIGMA_SCHEDULES:
+        accepted = ", ".join(SIGMA_SCHEDULE_ORDER)
+        raise ValueError(
+            f"Courbe de sigmas inconnue : {value!r}. Valeurs acceptées : {accepted}."
+        )
+    return None if normalized == DEFAULT_SIGMAS else normalized
+
+
+def _sampling_selection(method: str, sigmas: str) -> tuple[str | None, str | None]:
+    sampling_method = _sampling_method(method)
+    sigma_schedule = _sigma_schedule(sigmas)
+    effective_method = sampling_method or DEFAULT_METHOD
+    effective_sigmas = sigma_schedule or DEFAULT_SIGMAS
+    supported = _supported_sigmas_for_http_method(effective_method)
+    if effective_sigmas not in supported:
+        accepted = ", ".join(sorted(supported))
+        raise ValueError(
+            f"La courbe de sigmas {effective_sigmas!r} est incompatible avec "
+            f"la méthode {effective_method!r}. Valeurs acceptées : {accepted}."
+        )
+    return sampling_method, sigma_schedule
+
+
 class GenerationService:
     """Orchestre une requête complète sans artefact applicatif sur disque."""
 
@@ -198,6 +279,7 @@ class GenerationService:
         cfg: float,
         steps: int,
         method: str,
+        sigmas: str,
         seed: int,
     ) -> GeneratedPayload:
         selected_character = character.strip()
@@ -213,8 +295,9 @@ class GenerationService:
                 f"Checkpoint SDXL introuvable : {checkpoint}. "
                 "Choisissez un modèle renvoyé par GET /models."
             )
-        sampling_method = _sampling_method(method)
+        sampling_method, sigma_schedule = _sampling_selection(method, sigmas)
         effective_method = sampling_method or DEFAULT_METHOD
+        effective_sigmas = sigma_schedule or DEFAULT_SIGMAS
         effective_seed = resolve_generation_seed(seed, self.random_seed)
         reference_image = decode_reference_image(reference_content)
         request_config = replace(
@@ -244,6 +327,7 @@ class GenerationService:
                 steps=steps,
                 guidance_scale=cfg,
                 sampling_method=sampling_method,
+                sigma_schedule=sigma_schedule,
                 width=DEFAULT_WIDTH,
                 height=DEFAULT_HEIGHT,
                 identity_strength=DEFAULT_IDENTITY_STRENGTH,
@@ -268,6 +352,7 @@ class GenerationService:
             seed=effective_seed,
             model=checkpoint.stem,
             method=effective_method,
+            sigmas=effective_sigmas,
         )
 
 
@@ -331,6 +416,7 @@ def create_app(
                 "X-Generation-Seed",
                 "X-SDXL-Model",
                 "X-Sampling-Method",
+                "X-Sigma-Schedule",
             ],
         )
     generation_lock = asyncio.Lock()
@@ -341,6 +427,7 @@ def create_app(
             return {
                 "models": list_sdxl_models(config),
                 "sampling_methods": list_sampling_methods(),
+                "sigma_schedules": list_sigma_schedules(),
             }
         except PuLIDAppError as exc:
             raise _http_error(exc) from exc
@@ -354,6 +441,7 @@ def create_app(
         cfg: Annotated[float, Form(ge=0, le=30)] = 7.0,
         steps: Annotated[int, Form(ge=1, le=200)] = 20,
         method: Annotated[str, Form(min_length=1)] = DEFAULT_METHOD,
+        sigmas: Annotated[str, Form(min_length=1)] = DEFAULT_SIGMAS,
         seed: Annotated[int, Form(ge=-1, le=MAX_SEED)] = 0,
     ) -> Response:
         try:
@@ -367,6 +455,7 @@ def create_app(
                     cfg=cfg,
                     steps=steps,
                     method=method,
+                    sigmas=sigmas,
                     seed=seed,
                 )
         except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
@@ -381,6 +470,7 @@ def create_app(
                 "X-Generation-Seed": str(payload.seed),
                 "X-SDXL-Model": payload.model,
                 "X-Sampling-Method": payload.method,
+                "X-Sigma-Schedule": payload.sigmas,
             },
         )
 

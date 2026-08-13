@@ -311,6 +311,7 @@ class ImageGenerator:
         steps: int,
         guidance_scale: float,
         sampling_method: str | None,
+        sigma_schedule: str | None,
         identity_strength: float,
         width: int,
         height: int,
@@ -336,6 +337,7 @@ class ImageGenerator:
             "steps": steps,
             "guidance_scale": guidance_scale,
             "sampling_method": sampling_method or "default",
+            "sigma_schedule": sigma_schedule or "normal",
             "identity_strength": identity_strength,
             "width": width,
             "height": height,
@@ -377,6 +379,7 @@ class ImageGenerator:
         identity_strength: float = 0.8,
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
+        sigma_schedule: str | None = None,
         collect_timings: bool = False,
     ) -> tuple[Any, dict[str, Any]]:
         """Exécute l'inférence commune sans effectuer d'entrée/sortie applicative."""
@@ -393,7 +396,7 @@ class ImageGenerator:
         adapter = self._get_adapter()
         try:
             sdxl = self._get_sdxl().load()
-            sdxl.set_sampling_method(sampling_method)
+            sdxl.set_sampling(sampling_method, sigma_schedule)
             assert sdxl.pipeline is not None
             adapter.apply(sdxl.pipeline)
             adapter.set_identity(identity.conditioning, strength=identity_strength)
@@ -424,6 +427,7 @@ class ImageGenerator:
                 steps=steps,
                 guidance_scale=guidance_scale,
                 sampling_method=sampling_method,
+                sigma_schedule=sigma_schedule,
                 identity_strength=identity_strength,
                 width=width,
                 height=height,
@@ -450,6 +454,7 @@ class ImageGenerator:
         identity_strength: float = 0.8,
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
+        sigma_schedule: str | None = None,
         collect_timings: bool = False,
     ) -> InMemoryGenerationResult:
         """Génère une image sans créer de PNG, JSON ou autre artefact local."""
@@ -465,6 +470,7 @@ class ImageGenerator:
             identity_strength=identity_strength,
             guidance_scale=guidance_scale,
             sampling_method=sampling_method,
+            sigma_schedule=sigma_schedule,
             collect_timings=collect_timings,
         )
         metadata["save_duration_seconds"] = 0.0
@@ -483,6 +489,7 @@ class ImageGenerator:
         identity_strength: float = 0.8,
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
+        sigma_schedule: str | None = None,
         output_prefix: str = "pulid",
         output_dir: str | Path | None = None,
         collect_timings: bool = False,
@@ -500,6 +507,7 @@ class ImageGenerator:
             identity_strength=identity_strength,
             guidance_scale=guidance_scale,
             sampling_method=sampling_method,
+            sigma_schedule=sigma_schedule,
             collect_timings=collect_timings,
         )
         save_started = time.monotonic()

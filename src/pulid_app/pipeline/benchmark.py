@@ -148,6 +148,7 @@ class BenchmarkRunner:
         identity_strength: float = 0.8,
         guidance_scale: float = 7.0,
         sampling_method: str | None = None,
+        sigma_schedule: str | None = None,
     ) -> BenchmarkResult:
         if runs <= 0:
             raise BenchmarkError("Le nombre de runs doit être strictement positif.")
@@ -204,6 +205,7 @@ class BenchmarkRunner:
                     identity_strength=identity_strength,
                     guidance_scale=guidance_scale,
                     sampling_method=sampling_method,
+                    sigma_schedule=sigma_schedule,
                     output_prefix=f"benchmark_run_{index:03d}",
                     output_dir=run_output_dir,
                     collect_timings=True,
@@ -265,6 +267,7 @@ class BenchmarkRunner:
                 "identity_strength": identity_strength,
                 "guidance_scale": guidance_scale,
                 "sampling_method": sampling_method or "default",
+                "sigma_schedule": sigma_schedule or "normal",
             },
             "environment": {
                 "device": effective_device,

@@ -102,7 +102,9 @@ def _request(app, method: str, path: str, **kwargs):
     return asyncio.run(send())
 
 
-def test_models_endpoint_lists_checkpoints_and_sampling_methods(tmp_path: Path) -> None:
+def test_models_endpoint_lists_sampling_methods_and_sigmas_separately(
+    tmp_path: Path,
+) -> None:
     response = _request(_app(tmp_path), "GET", "/models")
 
     assert response.status_code == 200
@@ -124,11 +126,142 @@ def test_models_endpoint_lists_checkpoints_and_sampling_methods(tmp_path: Path) 
                 "name": "default",
                 "label": "Scheduler du checkpoint",
                 "default": True,
+                "supported_sigma_schedules": ["normal"],
             },
             {
-                "name": "dpmpp_2m_sde_karras",
-                "label": "dpmpp_2m_sde_karras",
+                "name": "dpmpp_2m",
+                "label": "DPM++ 2M",
                 "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "dpmpp_2m_sde",
+                "label": "DPM++ 2M SDE",
+                "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "dpmpp_3m_sde",
+                "label": "DPM++ 3M SDE",
+                "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "euler",
+                "label": "Euler",
+                "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "euler_ancestral",
+                "label": "Euler ancestral",
+                "default": False,
+                "supported_sigma_schedules": ["normal"],
+            },
+            {
+                "name": "heun",
+                "label": "Heun",
+                "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "lms",
+                "label": "LMS",
+                "default": False,
+                "supported_sigma_schedules": [
+                    "normal",
+                    "karras",
+                    "exponential",
+                    "beta",
+                ],
+            },
+            {
+                "name": "ddim",
+                "label": "DDIM",
+                "default": False,
+                "supported_sigma_schedules": ["normal"],
+            },
+        ],
+        "sigma_schedules": [
+            {
+                "name": "normal",
+                "label": "Normal / natif",
+                "default": True,
+                "supported_sampling_methods": [
+                    "default",
+                    "dpmpp_2m",
+                    "dpmpp_2m_sde",
+                    "dpmpp_3m_sde",
+                    "euler",
+                    "euler_ancestral",
+                    "heun",
+                    "lms",
+                    "ddim",
+                ],
+            },
+            {
+                "name": "karras",
+                "label": "Karras",
+                "default": False,
+                "supported_sampling_methods": [
+                    "dpmpp_2m",
+                    "dpmpp_2m_sde",
+                    "dpmpp_3m_sde",
+                    "euler",
+                    "heun",
+                    "lms",
+                ],
+            },
+            {
+                "name": "exponential",
+                "label": "Exponentiel",
+                "default": False,
+                "supported_sampling_methods": [
+                    "dpmpp_2m",
+                    "dpmpp_2m_sde",
+                    "dpmpp_3m_sde",
+                    "euler",
+                    "heun",
+                    "lms",
+                ],
+            },
+            {
+                "name": "beta",
+                "label": "Beta",
+                "default": False,
+                "supported_sampling_methods": [
+                    "dpmpp_2m",
+                    "dpmpp_2m_sde",
+                    "dpmpp_3m_sde",
+                    "euler",
+                    "heun",
+                    "lms",
+                ],
             },
         ],
     }
@@ -149,7 +282,8 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
             "model": "reaxl_v30",
             "cfg": "4.5",
             "steps": "8",
-            "method": "dpmpp_2m_sde_karras",
+            "method": "dpmpp_2m_sde",
+            "sigmas": "karras",
             "seed": "0",
         },
     )
@@ -159,7 +293,8 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-generation-seed"] == "987654321"
     assert response.headers["x-sdxl-model"] == "reaxl_v30"
-    assert response.headers["x-sampling-method"] == "dpmpp_2m_sde_karras"
+    assert response.headers["x-sampling-method"] == "dpmpp_2m_sde"
+    assert response.headers["x-sigma-schedule"] == "karras"
     assert response.headers["content-disposition"] == (
         'attachment; filename="noemie_20260813T200947_123456Z.png"'
     )
@@ -175,7 +310,8 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     assert instance.generate_kwargs["seed"] == 987654321
     assert instance.generate_kwargs["steps"] == 8
     assert instance.generate_kwargs["guidance_scale"] == 4.5
-    assert instance.generate_kwargs["sampling_method"] == "dpmpp_2m_sde_karras"
+    assert instance.generate_kwargs["sampling_method"] == "dpmpp_2m_sde"
+    assert instance.generate_kwargs["sigma_schedule"] == "karras"
     assert instance.closed is True
     assert {path for path in tmp_path.rglob("*") if path.is_file()} == files_before
     assert not (tmp_path / "outputs").exists()
@@ -199,7 +335,9 @@ def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> No
     assert response.status_code == 200
     assert response.headers["x-generation-seed"] == "42"
     assert response.headers["x-sampling-method"] == "default"
+    assert response.headers["x-sigma-schedule"] == "normal"
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sampling_method"] is None
+    assert FakeMemoryGenerator.instances[0].generate_kwargs["sigma_schedule"] is None
 
 
 def test_generate_rejects_unknown_model_without_loading_generator(tmp_path: Path) -> None:
@@ -220,7 +358,9 @@ def test_generate_rejects_unknown_model_without_loading_generator(tmp_path: Path
     assert FakeMemoryGenerator.instances == []
 
 
-def test_generate_rejects_invalid_image_and_sampling_method(tmp_path: Path) -> None:
+def test_generate_rejects_invalid_image_sampling_method_and_sigmas(
+    tmp_path: Path,
+) -> None:
     app = _app(tmp_path)
     invalid_image = _request(
         app,
@@ -245,10 +385,40 @@ def test_generate_rejects_invalid_image_and_sampling_method(tmp_path: Path) -> N
             "method": "unknown",
         },
     )
+    invalid_sigmas = _request(
+        app,
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "portrait",
+            "model": "realvisxl",
+            "method": "euler",
+            "sigmas": "unknown",
+        },
+    )
+    incompatible_sigmas = _request(
+        app,
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "portrait",
+            "model": "realvisxl",
+            "method": "euler_ancestral",
+            "sigmas": "karras",
+        },
+    )
 
     assert invalid_image.status_code == 422
     assert invalid_method.status_code == 422
+    assert invalid_sigmas.status_code == 422
+    assert incompatible_sigmas.status_code == 422
     assert "Méthode de sampling inconnue" in invalid_method.json()["detail"]["message"]
+    assert "Courbe de sigmas inconnue" in invalid_sigmas.json()["detail"]["message"]
+    assert "incompatible" in incompatible_sigmas.json()["detail"]["message"]
     assert FakeMemoryGenerator.instances == []
 
 

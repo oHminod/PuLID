@@ -88,6 +88,8 @@ def test_benchmark_writes_runs_and_summary(tmp_path: Path) -> None:
         steps=3,
         width=64,
         height=64,
+        sampling_method="euler",
+        sigma_schedule="exponential",
     )
 
     assert result.json_path.parent == tmp_path / "outputs" / "benchmarks"
@@ -102,6 +104,8 @@ def test_benchmark_writes_runs_and_summary(tmp_path: Path) -> None:
     )
     persisted = json.loads(result.json_path.read_text(encoding="utf-8"))
     assert persisted["parameters"]["runs"] == 2
+    assert persisted["parameters"]["sampling_method"] == "euler"
+    assert persisted["parameters"]["sigma_schedule"] == "exponential"
     assert persisted["environment"]["offload_strategy"] == "none"
     assert persisted["runs"][0]["seed"] == persisted["runs"][1]["seed"] == 42
 

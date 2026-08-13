@@ -2,7 +2,8 @@
 
 Ce serveur HTTP local expose exactement deux routes applicatives :
 
-- `GET /models` liste les checkpoints SDXL et les méthodes de sampling ;
+- `GET /models` liste séparément les checkpoints SDXL, les méthodes de sampling
+  et les courbes de sigmas compatibles ;
 - `POST /generate` génère une image et renvoie directement le PNG.
 
 La génération HTTP est entièrement séparée du chemin CLI avec sauvegarde. Elle
@@ -45,7 +46,7 @@ URL de base utilisée dans les exemples :
 http://127.0.0.1:12693
 ```
 
-## 1. Lister les modèles et méthodes
+## 1. Lister les modèles, méthodes et sigmas
 
 ### Requête
 
@@ -77,20 +78,116 @@ curl http://127.0.0.1:12693/models
     {
       "name": "default",
       "label": "Scheduler du checkpoint",
-      "default": true
+      "default": true,
+      "supported_sigma_schedules": ["normal"]
     },
     {
-      "name": "dpmpp_2m_sde_karras",
-      "label": "dpmpp_2m_sde_karras",
-      "default": false
+      "name": "dpmpp_2m",
+      "label": "DPM++ 2M",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "dpmpp_2m_sde",
+      "label": "DPM++ 2M SDE",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "dpmpp_3m_sde",
+      "label": "DPM++ 3M SDE",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "euler",
+      "label": "Euler",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "euler_ancestral",
+      "label": "Euler ancestral",
+      "default": false,
+      "supported_sigma_schedules": ["normal"]
+    },
+    {
+      "name": "heun",
+      "label": "Heun",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "lms",
+      "label": "LMS",
+      "default": false,
+      "supported_sigma_schedules": ["normal", "karras", "exponential", "beta"]
+    },
+    {
+      "name": "ddim",
+      "label": "DDIM",
+      "default": false,
+      "supported_sigma_schedules": ["normal"]
+    }
+  ],
+  "sigma_schedules": [
+    {
+      "name": "normal",
+      "label": "Normal / natif",
+      "default": true,
+      "supported_sampling_methods": [
+        "default", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde",
+        "euler", "euler_ancestral", "heun", "lms", "ddim"
+      ]
+    },
+    {
+      "name": "karras",
+      "label": "Karras",
+      "default": false,
+      "supported_sampling_methods": [
+        "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "euler", "heun", "lms"
+      ]
+    },
+    {
+      "name": "exponential",
+      "label": "Exponentiel",
+      "default": false,
+      "supported_sampling_methods": [
+        "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "euler", "heun", "lms"
+      ]
+    },
+    {
+      "name": "beta",
+      "label": "Beta",
+      "default": false,
+      "supported_sampling_methods": [
+        "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "euler", "heun", "lms"
+      ]
     }
   ]
 }
 ```
 
 Le frontend doit envoyer la propriété `name`, sans extension, dans le champ
-`model` de `/generate`. La méthode `default` conserve le scheduler fourni par le
-checkpoint.
+`model` de `/generate`. Il doit envoyer séparément le `name` d'une méthode dans
+`method` et le `name` d'une courbe dans `sigmas`.
+
+La méthode `default` conserve le scheduler fourni par le checkpoint et accepte
+uniquement `normal`. Pour alimenter la liste des sigmas, filtrer
+`sigma_schedules` avec `samplingMethod.supported_sigma_schedules`. Le champ
+inverse `sigmaSchedule.supported_sampling_methods` est fourni pour les interfaces
+qui partent d'abord du choix de sigmas. L'API refuse une combinaison incompatible
+en `422` avant de charger le pipeline.
+
+Migration de l'ancienne valeur combinée :
+
+```text
+method=dpmpp_2m_sde_karras
+            devient
+method=dpmpp_2m_sde + sigmas=karras
+```
+
+`dpmpp_2m_sde_karras` n'est plus une valeur acceptée pour `method`.
 
 Les modèles sont relus à chaque appel depuis :
 
@@ -119,7 +216,8 @@ Champs du formulaire :
 | `model` | texte | oui | — | `name` renvoyé par `GET /models` |
 | `cfg` | nombre | non | `7.0` | CFG entre 0 et 30 |
 | `steps` | entier | non | `20` | Nombre de steps entre 1 et 200 |
-| `method` | texte | non | `default` | Méthode renvoyée par `GET /models` |
+| `method` | texte | non | `default` | `sampling_methods[].name` renvoyé par `GET /models` |
+| `sigmas` | texte | non | `normal` | `sigma_schedules[].name` compatible avec `method` |
 | `seed` | entier | non | `0` | `0` ou `-1` = aléatoire ; sinon 1 à 2^63−1 |
 
 La résolution est actuellement fixée à `1024 × 1024` et la force PuLID à
@@ -137,7 +235,8 @@ curl --fail-with-body \
   --form model=reaxl_v30 \
   --form cfg=4.5 \
   --form steps=20 \
-  --form method=dpmpp_2m_sde_karras \
+  --form method=dpmpp_2m_sde \
+  --form sigmas=karras \
   --form seed=0 \
   http://127.0.0.1:12693/generate
 ```
@@ -153,7 +252,8 @@ Content-Disposition: attachment; filename="noemie_20260813T200947_123456Z.png"
 Cache-Control: no-store
 X-Generation-Seed: 987654321
 X-SDXL-Model: reaxl_v30
-X-Sampling-Method: dpmpp_2m_sde_karras
+X-Sampling-Method: dpmpp_2m_sde
+X-Sigma-Schedule: karras
 ```
 
 Le nom est composé du personnage normalisé et de la date/heure UTC :
@@ -177,6 +277,7 @@ type GenerateInput = {
   cfg: number;
   steps: number;
   method: string;
+  sigmas: string;
   seed: number;
 };
 
@@ -189,6 +290,7 @@ export async function generateImage(input: GenerateInput) {
   form.append("cfg", String(input.cfg));
   form.append("steps", String(input.steps));
   form.append("method", input.method);
+  form.append("sigmas", input.sigmas);
   form.append("seed", String(input.seed));
 
   const response = await fetch("http://127.0.0.1:12693/generate", {
@@ -215,8 +317,44 @@ export async function generateImage(input: GenerateInput) {
     seed: Number(response.headers.get("X-Generation-Seed")),
     model: response.headers.get("X-SDXL-Model"),
     method: response.headers.get("X-Sampling-Method"),
+    sigmas: response.headers.get("X-Sigma-Schedule"),
   };
 }
+```
+
+Types conseillés pour la réponse du GET :
+
+```ts
+type NamedOption = {
+  name: string;
+  label: string;
+  default: boolean;
+};
+
+type SamplingMethod = NamedOption & {
+  supported_sigma_schedules: string[];
+};
+
+type SigmaSchedule = NamedOption & {
+  supported_sampling_methods: string[];
+};
+
+type ModelsResponse = {
+  models: Array<{ name: string; filename: string; default: boolean }>;
+  sampling_methods: SamplingMethod[];
+  sigma_schedules: SigmaSchedule[];
+};
+```
+
+Lorsqu'un utilisateur change de méthode, conserver les sigmas seulement s'ils
+figurent encore dans `supported_sigma_schedules`; sinon revenir à la première
+valeur compatible, normalement `normal` :
+
+```ts
+const method = inventory.sampling_methods.find((item) => item.name === methodName);
+const allowed = new Set(method?.supported_sigma_schedules ?? ["normal"]);
+const visibleSigmas = inventory.sigma_schedules.filter((item) => allowed.has(item.name));
+const nextSigmas = allowed.has(currentSigmas) ? currentSigmas : visibleSigmas[0].name;
 ```
 
 Lorsque l'aperçu n'est plus utilisé, libérer son URL :
@@ -249,8 +387,8 @@ Les erreurs métier utilisent cette forme :
 
 Statuts usuels :
 
-- `422` : formulaire invalide, modèle ou méthode inconnue, image illisible,
-  aucun visage ou plusieurs visages ;
+- `422` : formulaire invalide, modèle/méthode/sigmas inconnus, combinaison
+  méthode-sigmas incompatible, image illisible, aucun visage ou plusieurs visages ;
 - `500` : échec de chargement d'un modèle ou erreur pendant l'inférence.
 
 Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.

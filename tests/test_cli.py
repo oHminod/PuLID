@@ -139,7 +139,9 @@ def test_main_parser_exposes_phase_11_subcommands() -> None:
             "--prompt",
             "portrait",
             "--method",
-            "dpmpp_2m_sde_karras",
+            "dpmpp_2m_sde",
+            "--sigmas",
+            "karras",
             "--cfg",
             "4.5",
             "--offload",
@@ -158,7 +160,8 @@ def test_main_parser_exposes_phase_11_subcommands() -> None:
 
     assert generate.command == "generate"
     assert generate.guidance_scale == 4.5
-    assert generate.method == "dpmpp_2m_sde_karras"
+    assert generate.method == "dpmpp_2m_sde"
+    assert generate.sigmas == "karras"
     assert generate.offload == "model_cpu_offload"
     assert benchmark.command == "benchmark"
 
@@ -246,7 +249,9 @@ def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) 
             "--model",
             "reaxl_v30",
             "--method",
-            "dpmpp_2m_sde_karras",
+            "dpmpp_2m_sde",
+            "--sigmas",
+            "karras",
             "--cfg",
             "4.5",
             "--seed",
@@ -268,7 +273,8 @@ def test_generate_command_forwards_options_and_closes_generator(tmp_path: Path) 
         models / "checkpoints" / "reaxl_v30.safetensors"
     )
     assert calls["generate"]["guidance_scale"] == 4.5
-    assert calls["generate"]["sampling_method"] == "dpmpp_2m_sde_karras"
+    assert calls["generate"]["sampling_method"] == "dpmpp_2m_sde"
+    assert calls["generate"]["sigma_schedule"] == "karras"
     assert calls["generate"]["seed"] == 7
     assert calls["constructor"]["offload_strategy"] == "model_cpu_offload"
     assert calls["closed"] is True
@@ -325,5 +331,6 @@ def test_benchmark_command_delegates_to_runner(tmp_path: Path) -> None:
     assert result == 0
     assert calls["run"]["runs"] == 2
     assert calls["run"]["steps"] == 3
+    assert calls["run"]["sigma_schedule"] == "normal"
     assert calls["constructor"]["offload_strategy"] == "model_cpu_offload"
     assert "Benchmark enregistré" in output.getvalue()

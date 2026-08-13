@@ -15,6 +15,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from pulid_app.config import ConfigError, load_config  # noqa: E402
+from pulid_app.models.sdxl import (  # noqa: E402
+    SAMPLING_METHOD_SPECS,
+    SIGMA_SCHEDULE_ARGUMENTS,
+)
 from pulid_app.paths import (  # noqa: E402
     configure_external_model_caches,
     resolve_sdxl_checkpoint,
@@ -27,7 +31,8 @@ DEFAULT_NEGATIVE_PROMPT = (
     "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
 )
 DEFAULT_REFERENCE = PROJECT_ROOT / "inputs" / "noemie.webp"
-SAMPLING_METHODS = ("dpmpp_2m_sde_karras",)
+SAMPLING_METHODS = tuple(SAMPLING_METHOD_SPECS)
+SIGMA_SCHEDULES = tuple(SIGMA_SCHEDULE_ARGUMENTS)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--method",
         choices=SAMPLING_METHODS,
         help="Méthode de sampling personnalisée ; scheduler du modèle par défaut.",
+    )
+    parser.add_argument(
+        "--sigmas",
+        choices=SIGMA_SCHEDULES,
+        default="normal",
+        help="Courbe de sigmas, sélectionnée indépendamment de la méthode.",
     )
     return parser
 
@@ -120,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             f"cache={cache_state}, durée={identity.duration_seconds:.2f} s"
         )
         console.print(f"Sampling : [cyan]{args.method or 'scheduler du modèle'}[/]")
+        console.print(f"Sigmas : [cyan]{args.sigmas}[/]")
         console.print("2/2 — Génération et sauvegarde automatiques…")
         generated = generator.generate(
             prompt=args.prompt,
@@ -132,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             identity_strength=args.strength,
             guidance_scale=args.guidance_scale,
             sampling_method=args.method,
+            sigma_schedule=args.sigmas,
         )
     except ImageGeneratorError as exc:
         console.print(f"[bold red]Échec du pipeline PuLID :[/] {exc}")

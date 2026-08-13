@@ -32,6 +32,7 @@ def test_parser_defaults_to_noemie_webp() -> None:
     assert args.steps == 20
     assert args.model is None
     assert args.method is None
+    assert args.sigmas == "normal"
     assert args.guidance_scale == 7.0
 
 
@@ -43,10 +44,18 @@ def test_parser_accepts_model_name_without_extension() -> None:
 
 def test_parser_accepts_custom_sampling_and_cfg() -> None:
     args = build_parser().parse_args(
-        ["--method", "dpmpp_2m_sde_karras", "--cfg", "4.5"]
+        [
+            "--method",
+            "dpmpp_2m_sde",
+            "--sigmas",
+            "karras",
+            "--cfg",
+            "4.5",
+        ]
     )
 
-    assert args.method == "dpmpp_2m_sde_karras"
+    assert args.method == "dpmpp_2m_sde"
+    assert args.sigmas == "karras"
     assert args.guidance_scale == 4.5
 
 
