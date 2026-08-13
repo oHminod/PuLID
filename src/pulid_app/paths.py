@@ -141,3 +141,30 @@ def ensure_writable_directory(path: Path) -> None:
             pass
     except OSError as exc:
         raise PermissionError(f"Le dossier n'est pas accessible en écriture : {path}") from exc
+
+
+def resolve_sdxl_checkpoint(config: AppConfig, model_name: str | None) -> Path:
+    """Résout un checkpoint nommé à côté du modèle SDXL configuré."""
+
+    if model_name is None:
+        return config.sdxl.checkpoint
+
+    selected = model_name.strip()
+    if not selected:
+        raise ValueError("L'option --model ne peut pas être vide.")
+    if selected in {".", ".."} or "/" in selected or "\\" in selected:
+        raise ValueError(
+            "L'option --model attend uniquement un nom de modèle, pas un chemin."
+        )
+
+    lowered = selected.casefold()
+    for extension in (".safetensors", ".safetensor"):
+        if lowered.endswith(extension):
+            selected = selected[: -len(extension)]
+            break
+    if not selected:
+        raise ValueError("Le nom fourni à --model est invalide.")
+
+    return (
+        config.sdxl.checkpoint.parent / f"{selected}.safetensors"
+    ).resolve(strict=False)

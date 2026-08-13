@@ -12,9 +12,8 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from pulid_app.cli import main  # noqa: E402
+from pulid_app.cli import inspect_main  # noqa: E402
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-
+    raise SystemExit(inspect_main())

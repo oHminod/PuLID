@@ -14,8 +14,11 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from pulid_app.config import AppConfig, ConfigError, load_config  # noqa: E402
-from pulid_app.paths import configure_external_model_caches  # noqa: E402
+from pulid_app.config import ConfigError, load_config  # noqa: E402
+from pulid_app.paths import (  # noqa: E402
+    configure_external_model_caches,
+    resolve_sdxl_checkpoint,
+)
 
 
 DEFAULT_PROMPT = "cinematic portrait of a woman standing in Tokyo at night"
@@ -64,33 +67,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Méthode de sampling personnalisée ; scheduler du modèle par défaut.",
     )
     return parser
-
-
-def resolve_sdxl_checkpoint(config: AppConfig, model_name: str | None) -> Path:
-    """Résout un nom de modèle local sans accepter de chemin arbitraire."""
-
-    if model_name is None:
-        return config.sdxl.checkpoint
-
-    selected = model_name.strip()
-    if not selected:
-        raise ValueError("L'option --model ne peut pas être vide.")
-    if selected in {".", ".."} or "/" in selected or "\\" in selected:
-        raise ValueError(
-            "L'option --model attend uniquement un nom de modèle, pas un chemin."
-        )
-
-    lowered = selected.casefold()
-    for extension in (".safetensors", ".safetensor"):
-        if lowered.endswith(extension):
-            selected = selected[: -len(extension)]
-            break
-    if not selected:
-        raise ValueError("Le nom fourni à --model est invalide.")
-
-    return (
-        config.sdxl.checkpoint.parent / f"{selected}.safetensors"
-    ).resolve(strict=False)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,26 +1,38 @@
-"""Interface de ligne de commande de la phase de bootstrap."""
+"""Commande installable ``pulid-gen`` et diagnostics locaux."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
+from typing import Any, Callable
 
 from rich.console import Console
 from rich.table import Table
 
-from pulid_app.config import AppConfig, ConfigError, load_config
+from pulid_app import __version__
+from pulid_app.config import AppConfig, ConfigError, PROJECT_ROOT, load_config
+from pulid_app.doctor import build_doctor_report, print_doctor_report
 from pulid_app.paths import (
     cache_env_violations,
     configure_external_model_caches,
     ensure_writable_directory,
     external_cache_paths,
     inspect_models,
+    resolve_sdxl_checkpoint,
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
+DEFAULT_NEGATIVE_PROMPT = (
+    "flaws in the eyes, flaws in the face, low quality, worst quality, "
+    "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
+)
+SAMPLING_METHODS = ("dpmpp_2m_sde_karras",)
+
+
+def build_inspection_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Inspecte les checkpoints locaux requis par PuLID."
     )
@@ -158,11 +170,308 @@ def run_inspection(
     return 0
 
 
+def _project_path(path: Path) -> Path:
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate.resolve(strict=False)
+
+
+def _add_config_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Fichier YAML alternatif, résolu depuis la racine du projet.",
+    )
+
+
+def _add_identity_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--reference",
+        type=Path,
+        required=True,
+        help="Image JPEG, PNG, WebP, BMP ou TIFF.",
+    )
+    parser.add_argument(
+        "--character",
+        help="Identifiant du personnage ; nom du fichier sans extension par défaut.",
+    )
+    parser.add_argument(
+        "--face-index",
+        type=int,
+        help="Index du visage à utiliser lorsqu'il y en a plusieurs (base 0).",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construit le parseur de la commande installable de phase 11."""
+
+    parser = argparse.ArgumentParser(
+        prog="pulid-gen",
+        description="Génération locale SDXL conditionnée par PuLID.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor = subparsers.add_parser(
+        "doctor",
+        help="Vérifie le SSD, les modèles, les caches, le device et les dépendances.",
+    )
+    _add_config_option(doctor)
+    doctor.set_defaults(handler=_handle_doctor)
+
+    inspection = subparsers.add_parser(
+        "inspect-models",
+        help="Inventorie les checkpoints locaux sans les charger.",
+    )
+    _add_config_option(inspection)
+    inspection.add_argument("--show-cache-env", action="store_true")
+    inspection.add_argument("--fail-on-internal-cache", action="store_true")
+    inspection.set_defaults(handler=_handle_inspection)
+
+    encode = subparsers.add_parser(
+        "encode",
+        help="Crée ou réutilise le cache ArcFace d'une identité.",
+    )
+    _add_config_option(encode)
+    _add_identity_options(encode)
+    encode.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore le cache existant et recalcule l'embedding.",
+    )
+    encode.set_defaults(handler=_handle_encode)
+
+    generate = subparsers.add_parser(
+        "generate",
+        help="Encode une référence puis génère un PNG et son JSON.",
+    )
+    _add_config_option(generate)
+    _add_identity_options(generate)
+    generate.add_argument("--prompt", required=True)
+    generate.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT)
+    generate.add_argument("--seed", type=int, default=42)
+    generate.add_argument("--strength", type=float, default=0.8)
+    generate.add_argument("--steps", type=int, default=20)
+    generate.add_argument(
+        "--guidance-scale",
+        "--cfg",
+        dest="guidance_scale",
+        type=float,
+        default=7.0,
+        help="CFG numérique (7.0 par défaut).",
+    )
+    generate.add_argument("--width", type=int, default=1024)
+    generate.add_argument("--height", type=int, default=1024)
+    generate.add_argument("--device", choices=("mps", "cuda", "cpu"))
+    generate.add_argument("--dtype", choices=("float16", "float32"))
+    generate.add_argument(
+        "--model",
+        help="Nom d'un checkpoint SDXL local, sans l'extension .safetensors.",
+    )
+    generate.add_argument("--method", choices=SAMPLING_METHODS)
+    generate.add_argument(
+        "--force-identity",
+        action="store_true",
+        help="Recalcule le cache ArcFace de la référence.",
+    )
+    generate.set_defaults(handler=_handle_generate)
+
+    benchmark = subparsers.add_parser(
+        "benchmark",
+        help="Réservé au benchmark reproductible de la phase 12.",
+    )
+    benchmark.set_defaults(handler=_handle_benchmark)
+    return parser
+
+
+def _load_command_config(
+    config_path: Path | None,
+    console: Console,
+) -> AppConfig | None:
+    try:
+        return load_config(config_path)
+    except ConfigError as exc:
+        console.print(f"[bold red]Configuration invalide :[/] {exc}")
+        return None
+
+
+def run_doctor(config_path: Path | None, console: Console) -> int:
+    config = _load_command_config(config_path, console)
+    if config is None:
+        return 2
+    report = build_doctor_report(config)
+    print_doctor_report(report, console)
+    return 0 if report.healthy else 1
+
+
+def run_encode(
+    args: argparse.Namespace,
+    console: Console,
+    *,
+    encoder_factory: Callable[[AppConfig], Any] | None = None,
+) -> int:
+    config = _load_command_config(args.config, console)
+    if config is None:
+        return 2
+    configure_external_model_caches(config.models_root)
+    reference = _project_path(args.reference)
+    character = (args.character or reference.stem).strip()
+
+    from pulid_app.models.identity_encoder import IdentityEncoder, IdentityEncoderError
+
+    factory = encoder_factory or IdentityEncoder.from_config
+    try:
+        encoder = factory(config)
+        cache_path = encoder.cache_path_for(
+            reference,
+            identity_id=character,
+            face_index=args.face_index,
+        )
+        cache_hit = cache_path.is_file() and not args.force
+        identity = encoder.encode_image(
+            reference,
+            identity_id=character,
+            face_index=args.face_index,
+            force_recompute=args.force,
+        )
+    except (IdentityEncoderError, OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[bold red]Encodage impossible :[/] {exc}")
+        return 1
+
+    state = "réutilisé" if cache_hit else "créé"
+    console.print(f"Personnage : [bold]{identity.id}[/]")
+    console.print(f"Référence : {identity.source_images[0]}")
+    console.print(f"Cache {state} : [cyan]{cache_path}[/]")
+    console.print(f"Embedding : shape={identity.face_embedding.shape}")
+    return 0
+
+
+def run_generate(
+    args: argparse.Namespace,
+    console: Console,
+    *,
+    generator_factory: Callable[..., Any] | None = None,
+) -> int:
+    config = _load_command_config(args.config, console)
+    if config is None:
+        return 2
+    try:
+        checkpoint = resolve_sdxl_checkpoint(config, args.model)
+    except ValueError as exc:
+        console.print(f"[bold red]Modèle SDXL invalide :[/] {exc}")
+        return 2
+    if args.model is not None and not checkpoint.is_file():
+        console.print(
+            f"[bold red]Modèle SDXL introuvable :[/] {checkpoint}. "
+            f"Placez-le dans {checkpoint.parent} ou omettez --model."
+        )
+        return 2
+    config = replace(config, sdxl=replace(config.sdxl, checkpoint=checkpoint))
+    configure_external_model_caches(config.models_root)
+    reference = _project_path(args.reference)
+    character = (args.character or reference.stem).strip()
+
+    from pulid_app.pipeline.generator import ImageGenerator, ImageGeneratorError
+
+    factory = generator_factory or ImageGenerator
+    generator: Any | None = None
+    cleanup_error: ImageGeneratorError | None = None
+    try:
+        generator = factory(
+            config,
+            device=args.device,
+            dtype_name=args.dtype,
+            allow_downloads=False,
+        )
+        console.print(f"Device : [bold]{generator.device}[/]")
+        console.print(f"Modèle SDXL : [cyan]{checkpoint.name}[/]")
+        identity = generator.encode_identity(
+            reference,
+            identity_id=character,
+            face_index=args.face_index,
+            force_recompute=args.force_identity,
+        )
+        generated = generator.generate(
+            prompt=args.prompt,
+            identity=identity,
+            negative_prompt=args.negative_prompt,
+            seed=args.seed,
+            width=args.width,
+            height=args.height,
+            steps=args.steps,
+            identity_strength=args.strength,
+            guidance_scale=args.guidance_scale,
+            sampling_method=args.method,
+        )
+    except ImageGeneratorError as exc:
+        console.print(f"[bold red]Génération impossible :[/] {exc}")
+        return 1
+    finally:
+        if generator is not None:
+            try:
+                generator.close()
+            except ImageGeneratorError as exc:
+                cleanup_error = exc
+
+    if cleanup_error is not None:
+        console.print(f"[bold red]Nettoyage mémoire impossible :[/] {cleanup_error}")
+        return 1
+    console.print(f"[bold green]Image générée :[/] {generated.png_path}")
+    console.print(f"[bold green]Métadonnées :[/] {generated.json_path}")
+    return 0
+
+
+def run_benchmark(console: Console) -> int:
+    console.print(
+        "[yellow]La commande benchmark est réservée à la phase 12 et n'exécute "
+        "encore aucune génération.[/]"
+    )
+    return 2
+
+
+def _handle_doctor(args: argparse.Namespace, console: Console) -> int:
+    return run_doctor(args.config, console)
+
+
+def _handle_inspection(args: argparse.Namespace, console: Console) -> int:
+    return run_inspection(
+        args.config,
+        console,
+        show_cache_env=args.show_cache_env,
+        fail_on_internal_cache=args.fail_on_internal_cache,
+    )
+
+
+def _handle_encode(args: argparse.Namespace, console: Console) -> int:
+    return run_encode(args, console)
+
+
+def _handle_generate(args: argparse.Namespace, console: Console) -> int:
+    return run_generate(args, console)
+
+
+def _handle_benchmark(_args: argparse.Namespace, console: Console) -> int:
+    return run_benchmark(console)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    handler: Callable[[argparse.Namespace, Console], int] = args.handler
+    return handler(args, Console())
+
+
+def inspect_main(argv: list[str] | None = None) -> int:
+    """Point d'entrée historique de ``pulid-inspect-models`` et du script."""
+
+    args = build_inspection_parser().parse_args(argv)
     return run_inspection(
         args.config,
         Console(),
         show_cache_env=args.show_cache_env,
         fail_on_internal_cache=args.fail_on_internal_cache,
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

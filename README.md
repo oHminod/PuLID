@@ -4,10 +4,10 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 10 sont opérationnelles : bootstrap, configuration centralisée,
+Les phases 1 à 11 sont opérationnelles : bootstrap, configuration centralisée,
 inspection, backends MPS/CUDA/CPU, cache d'identité AntelopeV2, SDXL local,
-gestion mémoire, adaptateur PuLID v1.1 et générateur haut niveau. Le pipeline
-complet peut être utilisé depuis Python ou par le script de test de phase 9.
+gestion mémoire, adaptateur PuLID v1.1, générateur haut niveau et CLI installable.
+Le pipeline complet peut être utilisé depuis Python ou avec `pulid-gen`.
 
 ## Prérequis
 
@@ -262,5 +262,49 @@ Le contexte `with` garantit le cleanup des modèles. Sans `device`, le meilleur
 backend disponible est choisi dans l'ordre CUDA, MPS, puis CPU. Les paramètres
 `sampling_method="dpmpp_2m_sde_karras"` et `guidance_scale=...` restent
 disponibles dans `generate()`.
+
+## CLI installable (phase 11)
+
+Après l'installation éditable du projet, la commande principale est disponible
+dans l'environnement virtuel :
+
+```bash
+source .venv/bin/activate
+pulid-gen --help
+```
+
+Le diagnostic complet ne charge aucun poids de génération :
+
+```bash
+pulid-gen doctor
+```
+
+Il vérifie le montage du SSD, les caches externes, les checkpoints, AntelopeV2,
+les configurations SDXL, le runtime PuLID épinglé, FaceXLib, EVA-CLIP, les
+permissions des sorties, MPS/CUDA et les versions des dépendances critiques.
+
+Les commandes d'inspection et de cache sont également regroupées :
+
+```bash
+pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
+pulid-gen encode \
+  --reference inputs/noemie.webp \
+  --character noemie
+```
+
+Une génération complète s'exécute ainsi :
+
+```bash
+pulid-gen generate \
+  --reference inputs/noemie.webp \
+  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
+  --model reaxl_v30 \
+  --method dpmpp_2m_sde_karras \
+  --cfg 4.5 \
+  --seed 42
+```
+
+La sous-commande `benchmark` est réservée mais retourne volontairement un code
+non nul jusqu'à son implémentation dans la phase 12.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
