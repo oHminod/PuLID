@@ -36,7 +36,11 @@ class FakeDetector:
 
 
 class FakeRecognizer:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def get(self, _image, face):
+        self.calls += 1
         face.embedding = np.asarray([3.0, 4.0], dtype=np.float32)
 
 
@@ -47,9 +51,17 @@ def _loaded_encoder(tmp_path: Path, face_count: int) -> IdentityEncoder:
     return encoder
 
 
-def test_webp_image_is_read_and_encoded(tmp_path: Path) -> None:
-    image_path = tmp_path / "reference.webp"
-    Image.new("RGB", (32, 32), (120, 80, 40)).save(image_path, format="WEBP")
+@pytest.mark.parametrize(
+    ("image_format", "suffix"),
+    [("JPEG", ".jpg"), ("PNG", ".png"), ("WEBP", ".webp")],
+)
+def test_supported_image_formats_are_read_and_encoded(
+    tmp_path: Path, image_format: str, suffix: str
+) -> None:
+    image_path = tmp_path / f"reference{suffix}"
+    Image.new("RGB", (32, 32), (120, 80, 40)).save(
+        image_path, format=image_format
+    )
     encoder = _loaded_encoder(tmp_path, face_count=1)
 
     result = encoder.encode(image_path)
@@ -58,6 +70,15 @@ def test_webp_image_is_read_and_encoded(tmp_path: Path) -> None:
     assert result.embedding.shape == (2,)
     assert result.norm == pytest.approx(5.0)
     np.testing.assert_allclose(result.normalized_embedding, [0.6, 0.8])
+
+
+def test_unsupported_image_format_is_rejected(tmp_path: Path) -> None:
+    image_path = tmp_path / "animated.gif"
+    Image.new("RGB", (32, 32), (120, 80, 40)).save(image_path, format="GIF")
+    encoder = _loaded_encoder(tmp_path, face_count=1)
+
+    with pytest.raises(ImageReadError, match="Format d'image GIF non pris en charge"):
+        encoder.encode(image_path)
 
 
 def test_no_face_is_rejected(tmp_path: Path) -> None:
@@ -102,3 +123,50 @@ def test_missing_model_directory_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ModelLoadError, match="Dossier AntelopeV2 introuvable"):
         IdentityEncoder(model_dir).load()
 
+
+def test_second_encode_image_call_reuses_content_cache(tmp_path: Path) -> None:
+    model_dir = tmp_path / "antelopev2"
+    model_dir.mkdir()
+    (model_dir / "scrfd_10g_bnkps.onnx").write_bytes(b"detector")
+    (model_dir / "glintr100.onnx").write_bytes(b"recognizer")
+    cache_dir = tmp_path / "cache" / "identity"
+    image_path = tmp_path / "noemie.png"
+    Image.new("RGB", (32, 32), (120, 80, 40)).save(image_path, format="PNG")
+
+    encoder = _loaded_encoder(model_dir, face_count=1)
+    encoder.identity_cache_dir = cache_dir
+    recognizer = encoder._recognizer
+    first = encoder.encode_image(image_path, identity_id="noemie")
+
+    assert isinstance(recognizer, FakeRecognizer)
+    assert recognizer.calls == 1
+    cache_path = encoder.cache_path_for(image_path, identity_id="noemie")
+    assert cache_path.is_file()
+    assert cache_path.name.startswith("noemie_")
+
+    cold_encoder = IdentityEncoder(model_dir, identity_cache_dir=cache_dir)
+    second = cold_encoder.encode_image(image_path, identity_id="noemie")
+
+    assert cold_encoder.is_loaded is False
+    assert second.id == "noemie"
+    assert second.metadata["source_format"] == "PNG"
+    np.testing.assert_array_equal(second.face_embedding, first.face_embedding)
+
+
+def test_cache_normalizes_character_name(tmp_path: Path) -> None:
+    model_dir = tmp_path / "antelopev2"
+    model_dir.mkdir()
+    (model_dir / "scrfd_10g_bnkps.onnx").write_bytes(b"detector")
+    (model_dir / "glintr100.onnx").write_bytes(b"recognizer")
+    image_path = tmp_path / "noemie.webp"
+    Image.new("RGB", (32, 32)).save(image_path, format="WEBP")
+    encoder = _loaded_encoder(model_dir, face_count=1)
+    encoder.identity_cache_dir = tmp_path / "cache"
+
+    first = encoder.encode_image(image_path, identity_id="  noemie  ")
+    cold_encoder = IdentityEncoder(model_dir, identity_cache_dir=encoder.identity_cache_dir)
+    second = cold_encoder.encode_image(image_path, identity_id="noemie")
+
+    assert first.id == "noemie"
+    assert second.id == "noemie"
+    assert cold_encoder.is_loaded is False

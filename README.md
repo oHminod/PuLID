@@ -4,10 +4,10 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 3 fournissent le bootstrap, la configuration centralisée,
+Les phases 1 à 4 fournissent le bootstrap, la configuration centralisée,
 l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
-faciale AntelopeV2. L'intégration de SDXL/PuLID sera réalisée dans les phases
-suivantes.
+faciale AntelopeV2 avec cache d'identité générique. L'intégration de SDXL/PuLID
+sera réalisée dans les phases suivantes.
 
 ## Prérequis
 
@@ -78,5 +78,22 @@ python scripts/test_insightface.py \
 
 InsightFace utilise explicitement `CPUExecutionProvider` sur macOS. Si une image
 contient plusieurs visages, il faut en sélectionner un avec `--face-index N`.
+
+## Cache d'identité de Noémie (phase 4)
+
+Le cache accepte les images JPEG, PNG et WebP, ainsi que BMP et TIFF. Il est
+adressé par le SHA-256 du contenu de l'image : renommer un fichier ne provoque
+donc pas un nouveau calcul.
+
+```bash
+source .venv/bin/activate
+python scripts/cache_identity.py \
+  --character noemie \
+  --image inputs/reference.webp
+```
+
+Le premier appel crée une archive NPZ sous `cache/identity/`. Le deuxième appel
+avec la même image relit cette archive sans charger les modèles ONNX ni recalculer
+l'embedding. Utiliser `--force` pour imposer un recalcul.
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.
