@@ -147,6 +147,65 @@ def test_generate_forwards_generic_cross_attention_kwargs(
     }
 
 
+def test_set_sampling_method_configures_dpmpp_2m_sde_karras(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+    calls: list[tuple[object, dict]] = []
+
+    class FakeScheduler:
+        @classmethod
+        def from_config(cls, config: object, **kwargs: object) -> object:
+            calls.append((config, kwargs))
+            return SimpleNamespace(config=config, configured=kwargs)
+
+    monkeypatch.setattr(model, "_import_dpm_scheduler", lambda: FakeScheduler)
+    model.load()
+    assert model.pipeline is not None
+    model.pipeline.scheduler = SimpleNamespace(config={"beta_schedule": "scaled_linear"})
+
+    model.set_sampling_method("dpmpp_2m_sde_karras")
+
+    assert model.sampling_method == "dpmpp_2m_sde_karras"
+    assert calls == [
+        (
+            {"beta_schedule": "scaled_linear"},
+            {
+                "algorithm_type": "sde-dpmsolver++",
+                "solver_order": 2,
+                "use_karras_sigmas": True,
+            },
+        )
+    ]
+
+
+def test_set_sampling_method_none_keeps_checkpoint_scheduler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+    model.load()
+    assert model.pipeline is not None
+    scheduler = object()
+    model.pipeline.scheduler = scheduler
+
+    model.set_sampling_method(None)
+
+    assert model.pipeline.scheduler is scheduler
+    assert model.sampling_method is None
+
+
+def test_set_sampling_method_rejects_unknown_name(tmp_path: Path) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+
+    with pytest.raises(SDXLConfigurationError, match="Méthode de sampling inconnue"):
+        model.set_sampling_method("euler_custom")
+
+
 def test_mps_load_retries_fp32_after_non_oom_fp16_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

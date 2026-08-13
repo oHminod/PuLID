@@ -26,6 +26,7 @@ DEFAULT_NEGATIVE_PROMPT = (
     "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
 )
 DEFAULT_REFERENCE = PROJECT_ROOT / "inputs" / "noemie.webp"
+SAMPLING_METHODS = ("dpmpp_2m_sde_karras",)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,7 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--strength", type=float, default=0.8)
     parser.add_argument("--steps", type=int, default=20)
-    parser.add_argument("--guidance-scale", type=float, default=7.0)
+    parser.add_argument(
+        "--guidance-scale",
+        "--cfg",
+        dest="guidance_scale",
+        type=float,
+        default=7.0,
+        help="CFG numérique (7.0 par défaut).",
+    )
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=1024)
     parser.add_argument("--face-index", type=int)
@@ -51,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Nom d'un checkpoint SDXL placé à côté du modèle configuré, "
             "sans l'extension .safetensors."
         ),
+    )
+    parser.add_argument(
+        "--method",
+        choices=SAMPLING_METHODS,
+        help="Méthode de sampling personnalisée ; scheduler du modèle par défaut.",
     )
     return parser
 
@@ -100,6 +113,7 @@ def build_metadata(
         "seed": result.seed,
         "steps": args.steps,
         "guidance_scale": args.guidance_scale,
+        "sampling_method": args.method or "default",
         "identity_strength": args.strength,
         "width": args.width,
         "height": args.height,
@@ -186,7 +200,9 @@ def main(argv: list[str] | None = None) -> int:
             # Un rechargement automatique perdrait les processeurs injectés.
             allow_dtype_fallback=False,
         ).load()
+        sdxl.set_sampling_method(args.method)
         assert sdxl.pipeline is not None
+        console.print(f"Sampling : [cyan]{args.method or 'scheduler du modèle'}[/]")
 
         console.print("3/4 — Injection de PuLID dans les cross-attentions SDXL…")
         adapter.apply(sdxl.pipeline)

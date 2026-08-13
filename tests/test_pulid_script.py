@@ -33,12 +33,23 @@ def test_parser_defaults_to_noemie_webp() -> None:
     assert args.strength == 0.8
     assert args.steps == 20
     assert args.model is None
+    assert args.method is None
+    assert args.guidance_scale == 7.0
 
 
 def test_parser_accepts_model_name_without_extension() -> None:
     args = build_parser().parse_args(["--model", "reaxl_v30"])
 
     assert args.model == "reaxl_v30"
+
+
+def test_parser_accepts_custom_sampling_and_cfg() -> None:
+    args = build_parser().parse_args(
+        ["--method", "dpmpp_2m_sde_karras", "--cfg", "4.5"]
+    )
+
+    assert args.method == "dpmpp_2m_sde_karras"
+    assert args.guidance_scale == 4.5
 
 
 def test_resolve_sdxl_checkpoint_uses_configured_model_directory(
@@ -122,6 +133,8 @@ def test_metadata_contains_phase_9_manifest(tmp_path: Path) -> None:
     assert metadata["prompt"] == "portrait"
     assert metadata["seed"] == 7
     assert metadata["identity_strength"] == 0.9
+    assert metadata["guidance_scale"] == 7.0
+    assert metadata["sampling_method"] == "default"
     assert metadata["sdxl_checkpoint"] == str(config.sdxl.checkpoint)
     assert metadata["pulid_checkpoint"] == str(config.pulid.checkpoint)
     assert metadata["device"] == "mps"

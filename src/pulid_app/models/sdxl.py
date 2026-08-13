@@ -31,6 +31,7 @@ REQUIRED_SDXL_CONFIG_FILES = (
     "unet/config.json",
     "vae/config.json",
 )
+SUPPORTED_SAMPLING_METHODS = frozenset({"dpmpp_2m_sde_karras"})
 
 
 class SDXLError(RuntimeError):
@@ -93,6 +94,7 @@ class SDXLModel:
         self.pipeline: Any | None = None
         self.active_dtype: Any | None = None
         self.dtype_fallback_used = False
+        self.sampling_method: str | None = None
 
     @classmethod
     def from_config(
@@ -162,6 +164,56 @@ class SDXLModel:
             ) from exc
         return torch, StableDiffusionXLPipeline
 
+    def _import_dpm_scheduler(self) -> Any:
+        configure_external_model_caches(self.models_root)
+        try:
+            from diffusers import DPMSolverMultistepScheduler
+        except ImportError as exc:
+            raise SDXLLoadError(
+                "Le scheduler DPM++ est indisponible. Activez .venv puis "
+                "réinstallez les dépendances d'inférence."
+            ) from exc
+        return DPMSolverMultistepScheduler
+
+    def _replace_scheduler(self, pipeline: Any, method: str) -> None:
+        if method != "dpmpp_2m_sde_karras":
+            supported = ", ".join(sorted(SUPPORTED_SAMPLING_METHODS))
+            raise SDXLConfigurationError(
+                f"Méthode de sampling inconnue : {method!r}. "
+                f"Valeurs acceptées : {supported}."
+            )
+        scheduler_class = self._import_dpm_scheduler()
+        try:
+            pipeline.scheduler = scheduler_class.from_config(
+                pipeline.scheduler.config,
+                algorithm_type="sde-dpmsolver++",
+                solver_order=2,
+                use_karras_sigmas=True,
+            )
+        except Exception as exc:
+            raise SDXLConfigurationError(
+                "Impossible de configurer le sampling "
+                f"{method!r} depuis le scheduler du checkpoint : {exc}"
+            ) from exc
+
+    def set_sampling_method(self, method: str | None) -> "SDXLModel":
+        """Remplace le scheduler chargé, ou conserve celui du modèle si absent."""
+
+        if method is None:
+            return self
+        normalized = method.strip().casefold()
+        if normalized not in SUPPORTED_SAMPLING_METHODS:
+            supported = ", ".join(sorted(SUPPORTED_SAMPLING_METHODS))
+            raise SDXLConfigurationError(
+                f"Méthode de sampling inconnue : {method!r}. "
+                f"Valeurs acceptées : {supported}."
+            )
+        self.load()
+        assert self.pipeline is not None
+        self._replace_scheduler(self.pipeline, normalized)
+        self.sampling_method = normalized
+        return self
+
     def _resolve_dtype(self, torch_module: Any) -> Any:
         if self.device == "cpu":
             return torch_module.float32
@@ -192,6 +244,10 @@ class SDXLModel:
                 add_watermarker=False,
             )
             pipeline = self.memory_manager.move_to_device(pipeline, self.device)
+            if self.sampling_method is not None:
+                # Un éventuel rechargement contrôlé doit conserver le scheduler
+                # demandé au lieu de revenir silencieusement à celui du modèle.
+                self._replace_scheduler(pipeline, self.sampling_method)
             if self.device == "mps":
                 # Réduit le pic mémoire du calcul d'attention au prix d'un peu de débit.
                 pipeline.enable_attention_slicing("auto")

@@ -212,6 +212,19 @@ python scripts/test_pulid.py \
 
 Sans `--model`, le checkpoint déclaré dans `config/default.yaml` reste utilisé.
 
+Le scheduler et le CFG peuvent également être remplacés pour un test donné :
+
+```bash
+python scripts/test_pulid.py \
+  --model reaxl_v30 \
+  --method dpmpp_2m_sde_karras \
+  --cfg 4.5
+```
+
+`--method` active ici DPM++ 2M SDE avec les sigmas Karras. Sans cette option,
+le scheduler fourni par le checkpoint est conservé. Sans `--cfg`, le CFG reste
+à sa valeur de base de `7.0`. L'ancien nom `--guidance-scale` reste accepté.
+
 Le JSON contient la référence, les prompts, les paramètres d'inférence, les
 checkpoints SDXL/PuLID, la révision du runtime officiel, le device, le dtype et
 les durées effectives. Le VAE du checkpoint SDXL monofichier est utilisé.
