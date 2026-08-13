@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import gc
 from pathlib import Path
 import time
 from typing import Any, TYPE_CHECKING
@@ -11,6 +10,7 @@ from typing import Any, TYPE_CHECKING
 from pulid_app.config import AppConfig
 from pulid_app.device import get_best_device
 from pulid_app.paths import configure_external_model_caches
+from pulid_app.pipeline.memory import MemoryManager, MemoryManagerError
 
 if TYPE_CHECKING:
     from PIL.Image import Image
@@ -88,6 +88,7 @@ class SDXLModel:
         self.device = (device or get_best_device()).casefold()
         self.requested_dtype_name = dtype_name.casefold() if dtype_name else None
         self.allow_dtype_fallback = allow_dtype_fallback
+        self.memory_manager = MemoryManager(self.models_root, device=self.device)
         self.pipeline: Any | None = None
         self.active_dtype: Any | None = None
         self.dtype_fallback_used = False
@@ -179,6 +180,7 @@ class SDXLModel:
             ) from exc
 
     def _load_pipeline(self, torch_module: Any, pipeline_class: Any, dtype: Any) -> Any:
+        pipeline: Any | None = None
         try:
             pipeline = pipeline_class.from_single_file(
                 str(self.checkpoint_path),
@@ -188,15 +190,28 @@ class SDXLModel:
                 torch_dtype=dtype,
                 add_watermarker=False,
             )
-            pipeline.to(self.device)
+            pipeline = self.memory_manager.move_to_device(pipeline, self.device)
             if self.device == "mps":
                 # Réduit le pic mémoire du calcul d'attention au prix d'un peu de débit.
                 pipeline.enable_attention_slicing("auto")
             return pipeline
         except Exception as exc:
+            cleanup_error: MemoryManagerError | None = None
+            try:
+                self.memory_manager.unload(pipeline, cleanup=False)
+                # Le chargement des poids peut avoir alloué avant que le module
+                # ne soit visible par le gestionnaire.
+                self.memory_manager.cleanup(force=True)
+            except MemoryManagerError as memory_exc:
+                cleanup_error = memory_exc
+            cleanup_details = (
+                f" Nettoyage mémoire également impossible : {cleanup_error}."
+                if cleanup_error is not None
+                else ""
+            )
             raise SDXLLoadError(
                 f"Impossible de charger {self.checkpoint_path} sur {self.device} "
-                f"en {_dtype_name(dtype)} : {exc}"
+                f"en {_dtype_name(dtype)} : {exc}.{cleanup_details}"
             ) from exc
 
     def load(self) -> "SDXLModel":
@@ -206,6 +221,7 @@ class SDXLModel:
             return self
         self._validate_local_files()
         torch_module, pipeline_class = self._import_ml()
+        self.memory_manager.bind_torch(torch_module)
         dtype = self._resolve_dtype(torch_module)
         try:
             self.pipeline = self._load_pipeline(torch_module, pipeline_class, dtype)
@@ -221,7 +237,7 @@ class SDXLModel:
             )
             if not can_fallback:
                 raise
-            self._cleanup_pipeline(torch_module)
+            self._cleanup_pipeline()
             try:
                 self.pipeline = self._load_pipeline(
                     torch_module, pipeline_class, torch_module.float32
@@ -234,16 +250,25 @@ class SDXLModel:
             self.dtype_fallback_used = True
         return self
 
-    def _cleanup_pipeline(self, torch_module: Any) -> None:
+    def _cleanup_pipeline(self) -> None:
         pipeline = self.pipeline
         self.pipeline = None
-        if pipeline is not None:
-            del pipeline
-        gc.collect()
-        if self.device == "mps" and hasattr(torch_module, "mps"):
-            torch_module.mps.empty_cache()
-        elif self.device == "cuda" and hasattr(torch_module, "cuda"):
-            torch_module.cuda.empty_cache()
+        self.active_dtype = None
+        try:
+            self.memory_manager.unload(pipeline)
+        except MemoryManagerError as exc:
+            raise SDXLLoadError(f"Impossible de libérer le pipeline SDXL : {exc}") from exc
+
+    def close(self) -> None:
+        """Décharge le pipeline ; les appels répétés sont sans effet."""
+
+        self._cleanup_pipeline()
+
+    def __enter__(self) -> "SDXLModel":
+        return self.load()
+
+    def __exit__(self, *_args: Any) -> None:
+        self.close()
 
     @staticmethod
     def _validate_generation_parameters(
@@ -314,6 +339,7 @@ class SDXLModel:
         )
         self.load()
         torch_module, pipeline_class = self._import_ml()
+        self.memory_manager.bind_torch(torch_module)
         started = time.monotonic()
         try:
             image = self._run_generation(
@@ -337,7 +363,7 @@ class SDXLModel:
             if not can_fallback:
                 raise SDXLGenerationError(f"Génération SDXL impossible : {exc}") from exc
 
-            self._cleanup_pipeline(torch_module)
+            self._cleanup_pipeline()
             try:
                 self.pipeline = self._load_pipeline(
                     torch_module, pipeline_class, torch_module.float32

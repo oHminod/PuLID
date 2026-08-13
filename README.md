@@ -4,10 +4,11 @@ Pipeline Python autonome pour SDXL et PuLID, conçu en priorité pour Apple Sili
 
 ## État
 
-Les phases 1 à 5 fournissent le bootstrap, la configuration centralisée,
+Les phases 1 à 6 fournissent le bootstrap, la configuration centralisée,
 l'inspection des modèles, la validation du backend PyTorch/MPS et l'extraction
 faciale AntelopeV2 avec cache d'identité générique. La génération SDXL locale
-est opérationnelle ; l'intégration de PuLID sera réalisée dans les phases suivantes.
+est opérationnelle et son cycle de vie mémoire est explicite ; l'intégration de
+PuLID sera réalisée dans les phases suivantes.
 
 ## Prérequis
 
@@ -120,5 +121,20 @@ Les fichiers `outputs/sdxl_test_<timestamp>.png` et `.json` contiennent l'image
 et ses paramètres effectifs. Le pipeline sélectionne MPS en FP16 et ne tente un
 second chargement FP32 que pour une erreur FP16 compatible avec ce fallback ; un
 manque de mémoire ne déclenche jamais ce second essai.
+
+## Gestion mémoire (phase 6)
+
+`MemoryManager` centralise les déplacements vers CPU/MPS/CUDA, le déchargement
+des modules et le nettoyage des caches. Un cache accélérateur n'est vidé qu'une
+fois après une ou plusieurs libérations ; `SDXLModel.close()` peut être appelé
+plusieurs fois sans multiplier les appels à `empty_cache()`.
+
+Le test suivant alloue une matrice de 64 Mio sur le meilleur backend disponible,
+puis vérifie les compteurs avant et après libération, sans charger de modèle :
+
+```bash
+source .venv/bin/activate
+python scripts/test_memory.py
+```
 
 Tous les chemins sont configurés dans `config/default.yaml`. Les chemins relatifs de modèles sont résolus depuis `models_root`; les chemins relatifs d'artefacts sont résolus depuis la racine du dépôt.

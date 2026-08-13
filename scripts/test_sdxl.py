@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     from pulid_app.models.sdxl import SDXLError, SDXLModel
 
     console = Console()
+    model: SDXLModel | None = None
     try:
         model = SDXLModel.from_config(
             config,
@@ -102,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     except (SDXLError, RuntimeError) as exc:
         console.print(f"[bold red]Échec SDXL :[/] {exc}")
         return 1
+    finally:
+        if model is not None:
+            try:
+                model.close()
+            except SDXLError as exc:
+                console.print(f"[yellow]Avertissement de libération mémoire : {exc}[/]")
 
     console.print(f"[bold green]Image générée :[/] {png_path}")
     console.print(f"[bold green]Métadonnées :[/] {json_path}")

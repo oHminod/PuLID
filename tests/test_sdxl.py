@@ -168,14 +168,46 @@ def test_mps_load_does_not_retry_fp32_after_out_of_memory(
         device="mps",
         dtype_name="float16",
     )
+    torch_module = _fake_torch()
+    empty_cache_calls: list[None] = []
+    torch_module.mps.empty_cache = lambda: empty_cache_calls.append(None)
     monkeypatch.setattr(
-        model, "_import_ml", lambda: (_fake_torch(), OutOfMemoryPipeline)
+        model, "_import_ml", lambda: (torch_module, OutOfMemoryPipeline)
     )
 
     with pytest.raises(SDXLLoadError, match="out of memory"):
         model.load()
 
     assert OutOfMemoryPipeline.calls == 1
+    assert len(empty_cache_calls) == 1
+
+
+def test_close_unloads_pipeline_and_only_empties_mps_cache_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    torch_module = _fake_torch()
+    empty_cache_calls: list[None] = []
+    torch_module.mps.empty_cache = lambda: empty_cache_calls.append(None)
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="mps",
+        dtype_name="float16",
+    )
+    monkeypatch.setattr(model, "_import_ml", lambda: (torch_module, FakePipeline))
+    model.load()
+    pipeline = model.pipeline
+
+    model.close()
+    model.close()
+
+    assert pipeline is not None
+    assert pipeline.device == "cpu"
+    assert model.is_loaded is False
+    assert model.active_dtype_name is None
+    assert len(empty_cache_calls) == 1
 
 
 @pytest.mark.parametrize(
