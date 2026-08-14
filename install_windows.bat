@@ -22,6 +22,14 @@ if not exist "%PULID_MODELS_ROOT%\" (
     exit /b 1
 )
 
+echo Nettoyage des metadonnees macOS incompatibles avec Windows...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$files = @(Get-ChildItem -LiteralPath $env:PULID_MODELS_ROOT -Recurse -Force -File -Filter '._*' -ErrorAction SilentlyContinue); if ($files.Count -gt 0) { Write-Host ('Suppression de ' + $files.Count + ' fichier(s) AppleDouble.'); $files | Remove-Item -Force -ErrorAction Stop }"
+if errorlevel 1 (
+    echo [ERREUR] Impossible de supprimer les fichiers AppleDouble sous :
+    echo   %PULID_MODELS_ROOT%
+    exit /b 1
+)
+
 if not exist "%PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors" (
     echo [ERREUR] Checkpoint SDXL par defaut introuvable :
     echo   %PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors
