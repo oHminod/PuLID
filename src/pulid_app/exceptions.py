@@ -52,6 +52,28 @@ class GenerationError(PuLIDAppError):
     """La génération ou l'une de ses étapes d'orchestration a échoué."""
 
 
+class PromptTooLongError(PuLIDAppError, ValueError):
+    """Un prompt dépasse la fenêtre longue explicitement prise en charge."""
+
+    def __init__(
+        self,
+        *,
+        prompt_kind: str,
+        token_count: int,
+        max_tokens: int,
+        encoder_index: int,
+    ) -> None:
+        self.prompt_kind = prompt_kind
+        self.token_count = token_count
+        self.max_tokens = max_tokens
+        self.encoder_index = encoder_index
+        super().__init__(
+            f"Le {prompt_kind} produit {token_count} jetons utiles avec "
+            f"l'encodeur CLIP {encoder_index}, pour un maximum de {max_tokens}. "
+            "Raccourcissez le prompt avant de relancer la génération."
+        )
+
+
 ACTIONABLE_ERROR_TYPES = (
     ExternalDriveNotMountedError,
     ModelNotFoundError,
@@ -59,6 +81,7 @@ ACTIONABLE_ERROR_TYPES = (
     FaceNotDetectedError,
     UnsupportedDeviceError,
     ModelLoadError,
+    PromptTooLongError,
     GenerationError,
 )
 

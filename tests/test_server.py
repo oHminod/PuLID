@@ -10,6 +10,7 @@ import httpx
 from PIL import Image
 import pytest
 
+from pulid_app.exceptions import PromptTooLongError
 from pulid_app.server import (
     create_app,
     generated_filename,
@@ -382,6 +383,38 @@ def test_generate_rejects_unknown_model_without_loading_generator(tmp_path: Path
     assert response.status_code == 422
     assert response.json()["detail"]["error"] == "ModelNotFoundError"
     assert FakeMemoryGenerator.instances == []
+
+
+def test_generate_reports_long_prompt_as_a_422_client_error(tmp_path: Path) -> None:
+    class LongPromptRejectingGenerator(FakeMemoryGenerator):
+        def generate_in_memory(self, **kwargs):
+            self.generate_kwargs = kwargs
+            raise PromptTooLongError(
+                prompt_kind="prompt positif",
+                token_count=256,
+                max_tokens=255,
+                encoder_index=1,
+            )
+
+    config, _models = _write_config(tmp_path)
+    app = create_app(config, generator_factory=LongPromptRejectingGenerator)
+
+    response = _request(
+        app,
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "very long prompt",
+            "model": "realvisxl",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "PromptTooLongError"
+    assert "256 jetons utiles" in response.json()["detail"]["message"]
+    assert LongPromptRejectingGenerator.instances[-1].closed is True
 
 
 def test_generate_rejects_invalid_image_sampling_method_and_sigmas(

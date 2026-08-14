@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 from PIL import Image
 import pytest
 
+from pulid_app.exceptions import PromptTooLongError
 from pulid_app.models.sdxl import (
+    MAX_PROMPT_TOKENS,
     REQUIRED_SDXL_CONFIG_FILES,
     SDXLConfigurationError,
     SDXLLoadError,
@@ -32,11 +35,66 @@ class FakeGenerator:
         return self
 
 
+class FakeTokenizer:
+    model_max_length = 77
+    bos_token_id = 1
+    eos_token_id = 2
+    pad_token_id = 2
+
+    def __call__(self, text: str, **_kwargs):
+        return SimpleNamespace(
+            input_ids=[10 + index for index, _word in enumerate(text.split())]
+        )
+
+    def num_special_tokens_to_add(self, *, pair: bool) -> int:
+        assert pair is False
+        return 2
+
+    def build_inputs_with_special_tokens(self, token_ids: list[int]) -> list[int]:
+        return [self.bos_token_id, *token_ids, self.eos_token_id]
+
+
+class FakeEncoderOutput:
+    def __init__(self, first_output: np.ndarray, hidden: np.ndarray) -> None:
+        self._first_output = first_output
+        self.hidden_states = (hidden, hidden, hidden)
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        if index != 0:
+            raise IndexError(index)
+        return self._first_output
+
+
+class FakeTextEncoder:
+    def __init__(self, hidden_size: int, *, pooled: bool) -> None:
+        self.hidden_size = hidden_size
+        self.pooled = pooled
+        self.input_batches: list[np.ndarray] = []
+
+    def __call__(self, input_ids: np.ndarray, *, output_hidden_states: bool):
+        assert output_hidden_states is True
+        self.input_batches.append(input_ids.copy())
+        hidden = np.repeat(input_ids[..., None], self.hidden_size, axis=-1).astype(
+            np.float32
+        )
+        if self.pooled:
+            first_output = np.arange(
+                input_ids.shape[0] * self.hidden_size,
+                dtype=np.float32,
+            ).reshape(input_ids.shape[0], self.hidden_size)
+        else:
+            first_output = hidden
+        return FakeEncoderOutput(first_output, hidden)
+
+
 class FakePipeline:
     load_kwargs = None
 
     def __init__(self) -> None:
         self.scheduler = SimpleNamespace(config={"scheduler": "checkpoint"})
+        self.config = SimpleNamespace(force_zeros_for_empty_prompt=True)
+        self.tokenizer = FakeTokenizer()
+        self.tokenizer_2 = FakeTokenizer()
         self.to_calls: list[str] = []
         self.offload_calls: list[str] = []
 
@@ -76,6 +134,10 @@ def _fake_torch() -> SimpleNamespace:
     return SimpleNamespace(
         float16="float16",
         float32="float32",
+        long=np.int64,
+        tensor=lambda value, **kwargs: np.asarray(value, dtype=kwargs.get("dtype")),
+        cat=lambda values, dim: np.concatenate(values, axis=dim),
+        zeros_like=np.zeros_like,
         Generator=FakeGenerator,
         inference_mode=lambda: FakeInferenceMode(),
         mps=SimpleNamespace(empty_cache=lambda: None),
@@ -220,6 +282,113 @@ def test_generate_forwards_generic_cross_attention_kwargs(
         "id_embedding": identity_embedding,
         "id_scale": 0.8,
     }
+
+
+@pytest.mark.parametrize(
+    ("token_count", "expected_sequence_length"),
+    [(76, 154), (MAX_PROMPT_TOKENS, 308)],
+)
+def test_generate_encodes_long_prompts_in_aligned_clip_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    token_count: int,
+    expected_sequence_length: int,
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    class LongPromptPipeline(FakePipeline):
+        def __init__(self) -> None:
+            super().__init__()
+            self._execution_device = "cpu"
+            self.text_encoder = FakeTextEncoder(2, pooled=False)
+            self.text_encoder_2 = FakeTextEncoder(3, pooled=True)
+
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(
+        model,
+        "_import_ml",
+        lambda: (_fake_torch(), LongPromptPipeline),
+    )
+    prompt = " ".join(f"word-{index}" for index in range(token_count))
+
+    model.generate(
+        prompt=prompt,
+        negative_prompt="bad anatomy",
+        steps=2,
+        width=64,
+        height=64,
+    )
+
+    assert model.pipeline is not None
+    kwargs = model.pipeline.generation_kwargs
+    assert "prompt" not in kwargs
+    assert "negative_prompt" not in kwargs
+    assert kwargs["prompt_embeds"].shape == (1, expected_sequence_length, 5)
+    assert kwargs["negative_prompt_embeds"].shape == (
+        1,
+        expected_sequence_length,
+        5,
+    )
+    assert kwargs["pooled_prompt_embeds"].shape == (1, 3)
+    assert kwargs["negative_pooled_prompt_embeds"].shape == (1, 3)
+
+    positive_blocks = model.pipeline.text_encoder.input_batches[0]
+    recovered_ids = [
+        token_id
+        for block in positive_blocks
+        for token_id in block[1:76]
+        if token_id != FakeTokenizer.eos_token_id
+    ]
+    assert recovered_ids == list(range(10, 10 + token_count))
+
+
+def test_generate_keeps_native_diffusers_encoding_for_short_prompts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    model.generate(
+        prompt="short portrait prompt",
+        negative_prompt="bad anatomy",
+        steps=2,
+        width=64,
+        height=64,
+    )
+
+    assert model.pipeline is not None
+    assert model.pipeline.generation_kwargs["prompt"] == "short portrait prompt"
+    assert model.pipeline.generation_kwargs["negative_prompt"] == "bad anatomy"
+    assert "prompt_embeds" not in model.pipeline.generation_kwargs
+
+
+@pytest.mark.parametrize(
+    ("prompt", "negative_prompt", "prompt_kind"),
+    [
+        (" ".join(["word"] * (MAX_PROMPT_TOKENS + 1)), None, "prompt positif"),
+        ("portrait", " ".join(["bad"] * (MAX_PROMPT_TOKENS + 1)), "prompt négatif"),
+    ],
+)
+def test_generate_rejects_prompts_above_255_useful_tokens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prompt: str,
+    negative_prompt: str | None,
+    prompt_kind: str,
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+
+    with pytest.raises(PromptTooLongError, match=prompt_kind):
+        model.generate(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            steps=2,
+            width=64,
+            height=64,
+        )
 
 
 def test_generate_collects_prompt_diffusion_and_vae_timings(

@@ -212,7 +212,7 @@ Champs du formulaire :
 |---|---:|:---:|---:|---|
 | `reference` | fichier | oui | — | JPEG, PNG, WebP, BMP ou TIFF, 20 Mio maximum |
 | `character` | texte | oui | — | Nom du personnage, 1 à 100 caractères |
-| `prompt` | texte | oui | — | Prompt positif, 1 à 4000 caractères |
+| `prompt` | texte | oui | — | Prompt positif, 1 à 4000 caractères et 255 jetons CLIP utiles maximum |
 | `model` | texte | oui | — | `name` renvoyé par `GET /models` |
 | `cfg` | nombre | non | `7.0` | CFG entre 0 et 30 |
 | `steps` | entier | non | `20` | Nombre de steps entre 1 et 200 |
@@ -223,6 +223,15 @@ Champs du formulaire :
 
 La résolution est actuellement fixée à `1024 × 1024`. Le prompt négatif par
 défaut du pipeline est appliqué.
+
+Le backend compte séparément les jetons produits par les deux tokenizers de
+SDXL, sans inclure les marqueurs BOS/EOS. Jusqu'à 75 jetons utiles, l'encodage
+natif Diffusers est conservé. De 76 à 255 jetons, le prompt est segmenté en
+blocs CLIP puis leurs embeddings sont concaténés sans troncature. Si l'un des
+deux tokenizers dépasse 255 jetons utiles, l'API répond en `422` avec
+`PromptTooLongError`. Le nombre de jetons n'est pas équivalent au nombre de
+mots ou de caractères ; le frontend peut donc conserver la limite de 4000
+caractères et afficher le message précis renvoyé par l'API.
 
 Exemple `curl` :
 
@@ -397,7 +406,8 @@ Les erreurs métier utilisent cette forme :
 
 Statuts usuels :
 
-- `422` : formulaire invalide (dont `strength` négatif ou non fini),
+- `422` : formulaire invalide (dont `strength` négatif ou non fini), prompt
+  dépassant 255 jetons CLIP utiles,
   modèle/méthode/sigmas inconnus, combinaison
   méthode-sigmas incompatible, image illisible, aucun visage ou plusieurs visages ;
 - `500` : échec de chargement d'un modèle ou erreur pendant l'inférence.

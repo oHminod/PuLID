@@ -15,6 +15,7 @@ from pulid_app.exceptions import (
     GenerationError,
     ModelLoadError,
     ModelNotFoundError,
+    PromptTooLongError,
     PuLIDAppError,
 )
 from pulid_app.paths import configure_external_model_caches
@@ -51,6 +52,7 @@ SIGMA_SCHEDULE_FLAGS = (
     "use_exponential_sigmas",
     "use_beta_sigmas",
 )
+MAX_PROMPT_TOKENS = 255
 
 
 @dataclass(frozen=True)
@@ -152,6 +154,23 @@ class SDXLGenerationResult:
     stage_durations_seconds: Mapping[str, float]
 
 
+@dataclass(frozen=True)
+class _PromptTokens:
+    """Jetons utiles d'un texte pour l'un des deux encodeurs CLIP de SDXL."""
+
+    tokenizer: Any
+    token_ids: tuple[int, ...]
+    model_max_length: int
+    chunk_capacity: int
+
+    @property
+    def chunk_count(self) -> int:
+        return max(
+            1,
+            (len(self.token_ids) + self.chunk_capacity - 1) // self.chunk_capacity,
+        )
+
+
 def _dtype_name(dtype: Any) -> str:
     return str(dtype).removeprefix("torch.")
 
@@ -159,6 +178,106 @@ def _dtype_name(dtype: Any) -> str:
 def _is_out_of_memory(exc: RuntimeError) -> bool:
     message = str(exc).casefold()
     return "out of memory" in message or "mps backend out of memory" in message
+
+
+def _tokenize_prompt(
+    tokenizer: Any,
+    text: str,
+    *,
+    prompt_kind: str,
+    encoder_index: int,
+) -> _PromptTokens:
+    """Tokenise sans troncature et valide la limite applicative."""
+
+    try:
+        encoded = tokenizer(
+            text,
+            add_special_tokens=False,
+            truncation=False,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            verbose=False,
+        )
+        raw_token_ids = getattr(encoded, "input_ids", None)
+        if raw_token_ids is None and isinstance(encoded, Mapping):
+            raw_token_ids = encoded.get("input_ids")
+        token_ids = tuple(int(token_id) for token_id in raw_token_ids)
+        model_max_length = int(tokenizer.model_max_length)
+        special_token_count = int(tokenizer.num_special_tokens_to_add(pair=False))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SDXLConfigurationError(
+            f"Impossible de tokeniser le {prompt_kind} avec l'encodeur CLIP "
+            f"{encoder_index} : {exc}"
+        ) from exc
+
+    chunk_capacity = model_max_length - special_token_count
+    if model_max_length <= 0 or chunk_capacity <= 0:
+        raise SDXLConfigurationError(
+            f"Fenêtre CLIP invalide pour l'encodeur {encoder_index} : "
+            f"model_max_length={model_max_length}, "
+            f"jetons spéciaux={special_token_count}."
+        )
+    if len(token_ids) > MAX_PROMPT_TOKENS:
+        raise PromptTooLongError(
+            prompt_kind=prompt_kind,
+            token_count=len(token_ids),
+            max_tokens=MAX_PROMPT_TOKENS,
+            encoder_index=encoder_index,
+        )
+    return _PromptTokens(
+        tokenizer=tokenizer,
+        token_ids=token_ids,
+        model_max_length=model_max_length,
+        chunk_capacity=chunk_capacity,
+    )
+
+
+def _build_token_blocks(tokens: _PromptTokens, block_count: int) -> list[list[int]]:
+    """Ajoute BOS/EOS et aligne tous les blocs sur la fenêtre CLIP."""
+
+    chunks = [
+        list(tokens.token_ids[start : start + tokens.chunk_capacity])
+        for start in range(0, len(tokens.token_ids), tokens.chunk_capacity)
+    ] or [[]]
+    if len(chunks) > block_count:
+        raise SDXLConfigurationError(
+            f"Nombre de blocs CLIP insuffisant : {block_count} pour {len(chunks)} requis."
+        )
+    chunks.extend([] for _ in range(block_count - len(chunks)))
+
+    pad_token_id = getattr(tokens.tokenizer, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = getattr(tokens.tokenizer, "eos_token_id", None)
+    if pad_token_id is None:
+        raise SDXLConfigurationError(
+            "Le tokenizer CLIP ne définit ni pad_token_id ni eos_token_id."
+        )
+
+    blocks: list[list[int]] = []
+    for chunk in chunks:
+        build_with_special_tokens = getattr(
+            tokens.tokenizer,
+            "build_inputs_with_special_tokens",
+            None,
+        )
+        if callable(build_with_special_tokens):
+            block = list(build_with_special_tokens(chunk))
+        else:
+            bos_token_id = getattr(tokens.tokenizer, "bos_token_id", None)
+            eos_token_id = getattr(tokens.tokenizer, "eos_token_id", None)
+            if bos_token_id is None or eos_token_id is None:
+                raise SDXLConfigurationError(
+                    "Le tokenizer CLIP ne permet pas de construire les marqueurs BOS/EOS."
+                )
+            block = [int(bos_token_id), *chunk, int(eos_token_id)]
+        if len(block) > tokens.model_max_length:
+            raise SDXLConfigurationError(
+                "Le tokenizer CLIP a produit un bloc plus long que sa fenêtre : "
+                f"{len(block)} > {tokens.model_max_length}."
+            )
+        block.extend([int(pad_token_id)] * (tokens.model_max_length - len(block)))
+        blocks.append(block)
+    return blocks
 
 
 @contextmanager
@@ -650,6 +769,163 @@ class SDXLModel:
         if guidance_scale < 0:
             raise SDXLConfigurationError("guidance_scale doit être positif ou nul.")
 
+    def _encode_prompt_token_sets(
+        self,
+        torch_module: Any,
+        token_sets: tuple[_PromptTokens, _PromptTokens],
+        *,
+        block_count: int,
+    ) -> tuple[Any, Any]:
+        """Encode puis concatène les blocs des deux CLIP de SDXL."""
+
+        assert self.pipeline is not None
+        text_encoders = (
+            getattr(self.pipeline, "text_encoder", None),
+            getattr(self.pipeline, "text_encoder_2", None),
+        )
+        if any(encoder is None for encoder in text_encoders):
+            raise SDXLConfigurationError(
+                "Le pipeline SDXL ne fournit pas ses deux encodeurs texte CLIP."
+            )
+
+        device = getattr(self.pipeline, "_execution_device", self.device)
+        hidden_states: list[Any] = []
+        pooled_embeddings: Any | None = None
+        for tokens, text_encoder in zip(token_sets, text_encoders, strict=True):
+            input_ids = torch_module.tensor(
+                _build_token_blocks(tokens, block_count),
+                dtype=torch_module.long,
+                device=device,
+            )
+            encoded = text_encoder(input_ids, output_hidden_states=True)
+            encoder_hidden_states = getattr(encoded, "hidden_states", None)
+            if not encoder_hidden_states or len(encoder_hidden_states) < 2:
+                raise SDXLConfigurationError(
+                    "Un encodeur CLIP n'a pas retourné ses états cachés intermédiaires."
+                )
+            penultimate = encoder_hidden_states[-2]
+            if len(penultimate.shape) != 3:
+                raise SDXLConfigurationError(
+                    "Shape CLIP inattendue pour les états cachés : "
+                    f"{tuple(penultimate.shape)}."
+                )
+            batch_size, sequence_length, hidden_size = penultimate.shape
+            hidden_states.append(
+                penultimate.reshape(
+                    1,
+                    int(batch_size) * int(sequence_length),
+                    int(hidden_size),
+                )
+            )
+
+            first_output = encoded[0]
+            if getattr(first_output, "ndim", 0) == 2:
+                # SDXL prend le pooling du second CLIP. Pour un texte plus court
+                # que l'autre conditionnement, conserver son dernier bloc réel
+                # plutôt que le dernier bloc de padding.
+                pooled_index = tokens.chunk_count - 1
+                pooled_embeddings = first_output[pooled_index : pooled_index + 1]
+
+        if pooled_embeddings is None:
+            raise SDXLConfigurationError(
+                "Le second encodeur CLIP n'a pas retourné d'embedding groupé."
+            )
+        return torch_module.cat(hidden_states, dim=-1), pooled_embeddings
+
+    def _prepare_long_prompt_kwargs(
+        self,
+        torch_module: Any,
+        *,
+        prompt: str,
+        negative_prompt: str | None,
+        guidance_scale: float,
+    ) -> dict[str, Any] | None:
+        """Prépare des embeddings segmentés seulement lorsqu'un texte dépasse un bloc."""
+
+        assert self.pipeline is not None
+        tokenizers = (
+            getattr(self.pipeline, "tokenizer", None),
+            getattr(self.pipeline, "tokenizer_2", None),
+        )
+        if any(tokenizer is None for tokenizer in tokenizers):
+            raise SDXLConfigurationError(
+                "Le pipeline SDXL ne fournit pas ses deux tokenizers CLIP."
+            )
+
+        positive_tokens = tuple(
+            _tokenize_prompt(
+                tokenizer,
+                prompt,
+                prompt_kind="prompt positif",
+                encoder_index=index,
+            )
+            for index, tokenizer in enumerate(tokenizers, start=1)
+        )
+        do_classifier_free_guidance = guidance_scale > 1.0
+        pipeline_config = getattr(self.pipeline, "config", None)
+        if isinstance(pipeline_config, Mapping):
+            force_zeros = bool(
+                pipeline_config.get("force_zeros_for_empty_prompt", False)
+            )
+        else:
+            force_zeros = bool(
+                getattr(pipeline_config, "force_zeros_for_empty_prompt", False)
+            )
+        zero_negative_prompt = (
+            do_classifier_free_guidance and negative_prompt is None and force_zeros
+        )
+
+        negative_tokens: tuple[_PromptTokens, _PromptTokens] | None = None
+        if do_classifier_free_guidance and not zero_negative_prompt:
+            negative_text = negative_prompt or ""
+            negative_tokens = tuple(
+                _tokenize_prompt(
+                    tokenizer,
+                    negative_text,
+                    prompt_kind="prompt négatif",
+                    encoder_index=index,
+                )
+                for index, tokenizer in enumerate(tokenizers, start=1)
+            )
+
+        all_tokens = (*positive_tokens, *(negative_tokens or ()))
+        block_count = max(tokens.chunk_count for tokens in all_tokens)
+        if block_count == 1:
+            return None
+
+        prompt_embeds, pooled_prompt_embeds = self._encode_prompt_token_sets(
+            torch_module,
+            positive_tokens,
+            block_count=block_count,
+        )
+        prepared = {
+            "prompt_embeds": prompt_embeds,
+            "pooled_prompt_embeds": pooled_prompt_embeds,
+        }
+        if do_classifier_free_guidance:
+            if zero_negative_prompt:
+                negative_prompt_embeds = torch_module.zeros_like(prompt_embeds)
+                negative_pooled_prompt_embeds = torch_module.zeros_like(
+                    pooled_prompt_embeds
+                )
+            else:
+                assert negative_tokens is not None
+                (
+                    negative_prompt_embeds,
+                    negative_pooled_prompt_embeds,
+                ) = self._encode_prompt_token_sets(
+                    torch_module,
+                    negative_tokens,
+                    block_count=block_count,
+                )
+            prepared.update(
+                {
+                    "negative_prompt_embeds": negative_prompt_embeds,
+                    "negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
+                }
+            )
+        return prepared
+
     def _run_generation(
         self,
         torch_module: Any,
@@ -687,6 +963,20 @@ class SDXLModel:
             enabled=collect_timings,
         ) as stage_durations:
             with torch_module.inference_mode():
+                prompt_started = time.monotonic()
+                long_prompt_kwargs = self._prepare_long_prompt_kwargs(
+                    torch_module,
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    guidance_scale=guidance_scale,
+                )
+                if long_prompt_kwargs is not None:
+                    generation_kwargs.pop("prompt")
+                    generation_kwargs.pop("negative_prompt")
+                    generation_kwargs.update(long_prompt_kwargs)
+                    stage_durations["prompt_preparation"] += (
+                        time.monotonic() - prompt_started
+                    )
                 output = self.pipeline(**generation_kwargs)
         if not output.images:
             raise SDXLGenerationError("SDXL n'a retourné aucune image.")
@@ -727,6 +1017,8 @@ class SDXLModel:
                 cross_attention_kwargs=cross_attention_kwargs,
                 collect_timings=collect_timings,
             )
+        except PromptTooLongError:
+            raise
         except RuntimeError as exc:
             can_fallback = (
                 self.allow_dtype_fallback

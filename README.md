@@ -177,6 +177,12 @@ Le test écrit `outputs/sdxl_test_<timestamp>.png` et son JSON adjacent. Sur MPS
 le pipeline utilise FP16 et n'essaie FP32 que pour une incompatibilité de dtype
 admissible ; un manque de mémoire ne déclenche pas ce second essai.
 
+Les prompts positifs et négatifs utilisent l'encodage Diffusers natif jusqu'à
+75 jetons CLIP utiles. Entre 76 et 255 jetons, ils sont segmentés en blocs CLIP
+dont les embeddings sont concaténés sans troncature. Au-delà de 255 jetons avec
+l'un des deux tokenizers SDXL, la génération échoue explicitement avec
+`PromptTooLongError`.
+
 ## 9. Test PuLID
 
 Valider d'abord l'adaptateur, puis son injection dans le véritable UNet :
@@ -337,6 +343,7 @@ Les erreurs CLI affichent leur type et une correction probable :
 | `ModelNotFoundError` | checkpoint/config/ONNX local absent | Corriger `config/default.yaml` ou le nom fourni à `--model` |
 | `FaceNotDetectedError` | aucun visage exploitable | Utiliser une référence nette, de face et suffisamment grande |
 | `MultipleFacesDetectedError` | plusieurs visages détectés | Ajouter `--face-index N` |
+| `PromptTooLongError` | prompt positif ou négatif supérieur à 255 jetons CLIP utiles | Raccourcir le texte en conservant les concepts prioritaires |
 | `UnsupportedDeviceError` | backend ou offload incompatible | Choisir `mps`, `cuda` ou `cpu`; réserver l'offload à CUDA |
 | `ModelLoadError` | dépendance, provider, poids ou mémoire | Lancer `doctor`, vérifier les versions et réduire la charge mémoire |
 | `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
