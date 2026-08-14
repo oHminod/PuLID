@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from rich.console import Console
 
 from pulid_app.config import (
@@ -16,6 +17,7 @@ from pulid_app.config import (
 )
 from pulid_app.doctor import (
     FACEXLIB_REQUIRED_FILES,
+    _nearest_mount,
     build_doctor_report,
     print_doctor_report,
 )
@@ -122,6 +124,18 @@ def test_doctor_reports_ready_environment(tmp_path: Path) -> None:
     output = StringIO()
     print_doctor_report(report, Console(file=output, force_terminal=False))
     assert "Doctor réussi" in output.getvalue()
+
+
+def test_nearest_mount_uses_anchor_when_is_mount_is_unsupported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unsupported_is_mount(_path: Path) -> bool:
+        raise NotImplementedError("Path.is_mount() is unsupported on this system")
+
+    monkeypatch.setattr(Path, "is_mount", unsupported_is_mount)
+
+    assert _nearest_mount(tmp_path / "models") == Path(tmp_path.anchor)
 
 
 def test_doctor_reports_missing_models_root(tmp_path: Path) -> None:

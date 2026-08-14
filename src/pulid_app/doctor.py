@@ -76,7 +76,14 @@ def _expected_volume_mount(path: Path) -> Path | None:
 
 def _nearest_mount(path: Path) -> Path:
     candidate = path.resolve(strict=False)
-    while candidate.parent != candidate and not candidate.is_mount():
+    while candidate.parent != candidate:
+        try:
+            if candidate.is_mount():
+                return candidate
+        except NotImplementedError:
+            # Path.is_mount() n'est pris en charge sous Windows qu'à partir
+            # de Python 3.12. L'ancre représente le volume (par ex. D:\\).
+            return Path(candidate.anchor)
         candidate = candidate.parent
     return candidate
 

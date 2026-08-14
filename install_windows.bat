@@ -1,0 +1,113 @@
+@echo off
+setlocal EnableExtensions
+
+set "PROJECT_DIR=%~dp0"
+set "PULID_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
+set "HF_HOME=%PULID_MODELS_ROOT%\huggingface"
+set "HUGGINGFACE_HUB_CACHE=%PULID_MODELS_ROOT%\huggingface\hub"
+set "TRANSFORMERS_CACHE=%PULID_MODELS_ROOT%\huggingface\transformers"
+set "TORCH_HOME=%PULID_MODELS_ROOT%\torch"
+set "XDG_CACHE_HOME=%PULID_MODELS_ROOT%\other"
+set "MPLCONFIGDIR=%PULID_MODELS_ROOT%\other\matplotlib"
+set "UV_CACHE_DIR=%PULID_MODELS_ROOT%\other\uv-windows"
+set "UV_PYTHON_INSTALL_DIR=%PULID_MODELS_ROOT%\other\uv-python-windows"
+set "NO_ALBUMENTATIONS_UPDATE=1"
+
+cd /d "%PROJECT_DIR%"
+
+if not exist "%PULID_MODELS_ROOT%\" (
+    echo [ERREUR] Dossier de modeles introuvable :
+    echo   %PULID_MODELS_ROOT%
+    echo Copiez le dossier PuLID_models a la racine du projet, puis relancez ce script.
+    exit /b 1
+)
+
+if not exist "%PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors" (
+    echo [ERREUR] Checkpoint SDXL par defaut introuvable :
+    echo   %PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors
+    echo Verifiez que le dossier PuLID_models a ete copie integralement.
+    exit /b 1
+)
+
+set "UV_EXE="
+for /f "delims=" %%I in ('where uv.exe 2^>nul') do if not defined UV_EXE set "UV_EXE=%%I"
+
+if not defined UV_EXE (
+    set "UV_INSTALL_DIR=%LOCALAPPDATA%\PuLID\uv\bin"
+    echo Installation de uv...
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    if errorlevel 1 (
+        echo [ERREUR] Impossible d'installer uv.
+        echo Installez-le manuellement puis relancez ce script :
+        echo   winget install --id=astral-sh.uv -e
+        exit /b 1
+    )
+    set "UV_EXE=%LOCALAPPDATA%\PuLID\uv\bin\uv.exe"
+)
+
+if not exist "%UV_EXE%" (
+    echo [ERREUR] Executable uv introuvable : %UV_EXE%
+    exit /b 1
+)
+
+set "VENV_PYTHON=%PROJECT_DIR%.venv\Scripts\python.exe"
+if not exist "%VENV_PYTHON%" (
+    echo Creation de l'environnement Python 3.11...
+    "%UV_EXE%" venv --python 3.11 "%PROJECT_DIR%.venv"
+    if errorlevel 1 goto :venv_error
+)
+
+echo Installation de PyTorch 2.13 avec CUDA 13.0...
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" "torch==2.13.0" "torchvision==0.28.0" --index-url "https://download.pytorch.org/whl/cu130"
+if errorlevel 1 goto :dependency_error
+
+echo Installation de PuLID et du serveur HTTP...
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" -e ".[inference,pulid,server,dev]"
+if errorlevel 1 goto :dependency_error
+
+echo Verification de CUDA...
+"%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available(), 'CUDA indisponible : mettez a jour le pilote NVIDIA'; print('CUDA OK :', torch.cuda.get_device_name(0), '- PyTorch', torch.__version__)"
+if errorlevel 1 goto :cuda_error
+
+echo Verification de l'installation et des modeles...
+"%PROJECT_DIR%.venv\Scripts\pulid-gen.exe" doctor
+if errorlevel 1 goto :validation_error
+
+"%VENV_PYTHON%" "%PROJECT_DIR%scripts\inspect_models.py" --show-cache-env --fail-on-internal-cache
+if errorlevel 1 goto :validation_error
+
+netsh advfirewall firewall show rule name="PuLID_API_12693" >nul 2>&1
+if errorlevel 1 (
+    echo Autorisation du port TCP 12693 sur les reseaux prives...
+    echo Windows va demander une confirmation administrateur.
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$process = Start-Process -FilePath netsh.exe -ArgumentList @('advfirewall','firewall','add','rule','name=PuLID_API_12693','dir=in','action=allow','protocol=TCP','localport=12693','profile=private') -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+    if errorlevel 1 (
+        echo [AVERTISSEMENT] La regle de pare-feu n'a pas ete creee.
+        echo Relancez install_windows.bat ou ajoutez manuellement le port TCP 12693 au profil prive.
+    )
+)
+
+echo.
+echo Installation terminee.
+echo Lancez ensuite : start_windows.bat
+exit /b 0
+
+:venv_error
+echo [ERREUR] Impossible de creer l'environnement Python 3.11.
+exit /b 1
+
+:dependency_error
+echo [ERREUR] Installation des dependances impossible.
+echo Si l'erreur concerne InsightFace, installez Microsoft C++ Build Tools
+echo avec la charge de travail "Desktop development with C++", puis relancez ce script.
+exit /b 1
+
+:cuda_error
+echo [ERREUR] PyTorch ne detecte pas la carte NVIDIA.
+echo Installez le dernier pilote NVIDIA compatible puis relancez ce script.
+exit /b 1
+
+:validation_error
+echo [ERREUR] L'installation ou le dossier PuLID_models est incomplet.
+echo Consultez les erreurs affichees ci-dessus, corrigez-les puis relancez ce script.
+exit /b 1

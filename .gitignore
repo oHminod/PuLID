@@ -18,6 +18,7 @@ htmlcov/
 .vscode/
 
 # Modèles lourds : ils doivent rester sur le SSD externe
+PuLID_models/
 *.safetensors
 *.ckpt
 *.pt
@@ -35,4 +36,3 @@ cache/identity/*
 inputs/*
 !inputs/.gitkeep
 logs/
-
