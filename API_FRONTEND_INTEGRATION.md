@@ -216,12 +216,13 @@ Champs du formulaire :
 | `model` | texte | oui | — | `name` renvoyé par `GET /models` |
 | `cfg` | nombre | non | `7.0` | CFG entre 0 et 30 |
 | `steps` | entier | non | `20` | Nombre de steps entre 1 et 200 |
+| `strength` | nombre | non | `0.8` | Force d'identité PuLID, finie et supérieure ou égale à 0 |
 | `method` | texte | non | `default` | `sampling_methods[].name` renvoyé par `GET /models` |
 | `sigmas` | texte | non | `normal` | `sigma_schedules[].name` compatible avec `method` |
 | `seed` | entier | non | `0` | `0` ou `-1` = aléatoire ; sinon 1 à 2^63−1 |
 
-La résolution est actuellement fixée à `1024 × 1024` et la force PuLID à
-`0.8`. Le prompt négatif par défaut du pipeline est appliqué.
+La résolution est actuellement fixée à `1024 × 1024`. Le prompt négatif par
+défaut du pipeline est appliqué.
 
 Exemple `curl` :
 
@@ -235,6 +236,7 @@ curl --fail-with-body \
   --form model=reaxl_v30 \
   --form cfg=4.5 \
   --form steps=20 \
+  --form strength=1.25 \
   --form method=dpmpp_2m_sde \
   --form sigmas=karras \
   --form seed=0 \
@@ -276,6 +278,7 @@ type GenerateInput = {
   model: string;
   cfg: number;
   steps: number;
+  strength: number;
   method: string;
   sigmas: string;
   seed: number;
@@ -289,6 +292,7 @@ export async function generateImage(input: GenerateInput) {
   form.append("model", input.model);
   form.append("cfg", String(input.cfg));
   form.append("steps", String(input.steps));
+  form.append("strength", String(input.strength));
   form.append("method", input.method);
   form.append("sigmas", input.sigmas);
   form.append("seed", String(input.seed));
@@ -321,6 +325,12 @@ export async function generateImage(input: GenerateInput) {
   };
 }
 ```
+
+Pour le contrôle frontend, utiliser `0.8` comme valeur initiale et un champ
+numérique avec `min=0`. Un pas de `0.05` ou `0.1` est adapté à l'interface, mais
+l'API accepte toute valeur finie supérieure ou égale à zéro. `String(number)`
+produit le séparateur décimal `.` attendu dans le `FormData`, indépendamment de
+la langue de l'interface.
 
 Types conseillés pour la réponse du GET :
 
@@ -387,7 +397,8 @@ Les erreurs métier utilisent cette forme :
 
 Statuts usuels :
 
-- `422` : formulaire invalide, modèle/méthode/sigmas inconnus, combinaison
+- `422` : formulaire invalide (dont `strength` négatif ou non fini),
+  modèle/méthode/sigmas inconnus, combinaison
   méthode-sigmas incompatible, image illisible, aucun visage ou plusieurs visages ;
 - `500` : échec de chargement d'un modèle ou erreur pendant l'inférence.
 

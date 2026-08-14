@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import httpx
 from PIL import Image
+import pytest
 
 from pulid_app.server import (
     create_app,
@@ -282,6 +283,7 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
             "model": "reaxl_v30",
             "cfg": "4.5",
             "steps": "8",
+            "strength": "1.25",
             "method": "dpmpp_2m_sde",
             "sigmas": "karras",
             "seed": "0",
@@ -310,6 +312,7 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     assert instance.generate_kwargs["seed"] == 987654321
     assert instance.generate_kwargs["steps"] == 8
     assert instance.generate_kwargs["guidance_scale"] == 4.5
+    assert instance.generate_kwargs["identity_strength"] == 1.25
     assert instance.generate_kwargs["sampling_method"] == "dpmpp_2m_sde"
     assert instance.generate_kwargs["sigma_schedule"] == "karras"
     assert instance.closed is True
@@ -338,6 +341,29 @@ def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> No
     assert response.headers["x-sigma-schedule"] == "normal"
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sampling_method"] is None
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sigma_schedule"] is None
+    assert FakeMemoryGenerator.instances[0].generate_kwargs["identity_strength"] == 0.8
+
+
+@pytest.mark.parametrize("strength", ["-0.1", "nan", "inf"])
+def test_generate_rejects_invalid_strength_before_loading_generator(
+    tmp_path: Path,
+    strength: str,
+) -> None:
+    response = _request(
+        _app(tmp_path),
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "portrait",
+            "model": "realvisxl",
+            "strength": strength,
+        },
+    )
+
+    assert response.status_code == 422
+    assert FakeMemoryGenerator.instances == []
 
 
 def test_generate_rejects_unknown_model_without_loading_generator(tmp_path: Path) -> None:

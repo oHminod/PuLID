@@ -278,6 +278,7 @@ class GenerationService:
         model: str,
         cfg: float,
         steps: int,
+        strength: float,
         method: str,
         sigmas: str,
         seed: int,
@@ -330,7 +331,7 @@ class GenerationService:
                 sigma_schedule=sigma_schedule,
                 width=DEFAULT_WIDTH,
                 height=DEFAULT_HEIGHT,
-                identity_strength=DEFAULT_IDENTITY_STRENGTH,
+                identity_strength=strength,
             )
             output = BytesIO()
             generated.image.save(output, format="PNG")
@@ -440,6 +441,10 @@ def create_app(
         model: Annotated[str, Form(min_length=1, max_length=255)],
         cfg: Annotated[float, Form(ge=0, le=30)] = 7.0,
         steps: Annotated[int, Form(ge=1, le=200)] = 20,
+        strength: Annotated[
+            float,
+            Form(ge=0, allow_inf_nan=False),
+        ] = DEFAULT_IDENTITY_STRENGTH,
         method: Annotated[str, Form(min_length=1)] = DEFAULT_METHOD,
         sigmas: Annotated[str, Form(min_length=1)] = DEFAULT_SIGMAS,
         seed: Annotated[int, Form(ge=-1, le=MAX_SEED)] = 0,
@@ -454,6 +459,7 @@ def create_app(
                     model=model,
                     cfg=cfg,
                     steps=steps,
+                    strength=strength,
                     method=method,
                     sigmas=sigmas,
                     seed=seed,
