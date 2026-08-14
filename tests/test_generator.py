@@ -227,7 +227,7 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert sdxl.generate_calls[0]["seed"] == 7
     assert sdxl.generate_calls[0]["guidance_scale"] == 4.5
     assert sdxl.generate_calls[0]["negative_prompt"] == "bad anatomy"
-    assert sdxl.generate_calls[0]["clip_skip"] == 2
+    assert sdxl.generate_calls[0]["clip_skip"] == 1
     assert sdxl.generate_calls[0]["cross_attention_kwargs"]["cfg"] is True
     assert adapter.identity_calls == [(adapter.conditioning, 0.9)]
     assert adapter.clear_calls == 1
@@ -281,6 +281,7 @@ def test_memory_path_never_creates_identity_or_output_files(tmp_path: Path) -> N
     assert generated.metadata["sigma_schedule"] == "exponential"
     assert generated.metadata["save_duration_seconds"] == 0.0
     assert sdxl.generate_calls[0]["seed"] == 123
+    assert sdxl.generate_calls[0]["clip_skip"] is None
     assert not generator.config.outputs_dir.exists()
     assert not generator.config.identity_cache_dir.exists()
 

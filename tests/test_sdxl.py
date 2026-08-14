@@ -352,7 +352,7 @@ def test_generate_keeps_native_diffusers_encoding_for_short_prompts(
     model.generate(
         prompt="short portrait prompt",
         negative_prompt="bad anatomy",
-        clip_skip=2,
+        clip_skip=1,
         steps=2,
         width=64,
         height=64,
@@ -361,12 +361,19 @@ def test_generate_keeps_native_diffusers_encoding_for_short_prompts(
     assert model.pipeline is not None
     assert model.pipeline.generation_kwargs["prompt"] == "short portrait prompt"
     assert model.pipeline.generation_kwargs["negative_prompt"] == "bad anatomy"
-    assert model.pipeline.generation_kwargs["clip_skip"] == 2
+    assert model.pipeline.generation_kwargs["clip_skip"] == 1
     assert "prompt_embeds" not in model.pipeline.generation_kwargs
 
 
-def test_generate_applies_clip_skip_two_to_long_prompt_embeddings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("clip_skip", "expected_hidden_value"),
+    [(None, 4), (1, 3)],
+)
+def test_generate_selects_expected_hidden_state_for_long_prompts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    clip_skip: int | None,
+    expected_hidden_value: int,
 ) -> None:
     checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
 
@@ -383,7 +390,7 @@ def test_generate_applies_clip_skip_two_to_long_prompt_embeddings(
     model.generate(
         prompt=" ".join(f"word-{index}" for index in range(76)),
         negative_prompt="bad anatomy",
-        clip_skip=2,
+        clip_skip=clip_skip,
         steps=2,
         width=64,
         height=64,
@@ -392,7 +399,7 @@ def test_generate_applies_clip_skip_two_to_long_prompt_embeddings(
     assert model.pipeline is not None
     kwargs = model.pipeline.generation_kwargs
     assert "clip_skip" not in kwargs
-    assert np.all(kwargs["prompt_embeds"][0, 0] == 2)
+    assert np.all(kwargs["prompt_embeds"][0, 0] == expected_hidden_value)
 
 
 @pytest.mark.parametrize(

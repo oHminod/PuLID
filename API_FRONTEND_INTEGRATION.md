@@ -214,7 +214,7 @@ Champs du formulaire :
 | `character` | texte | oui | — | Nom du personnage, 1 à 100 caractères |
 | `prompt` | texte | oui | — | Prompt positif, 1 à 4000 caractères et 255 jetons CLIP utiles maximum |
 | `negative_prompt` | texte | non | prompt négatif du pipeline | Prompt négatif, 4000 caractères et 255 jetons CLIP utiles maximum ; une chaîne vide le désactive |
-| `clip_skip_2` | booléen | non | `false` | Active `clip_skip=2` pour les deux encodeurs CLIP de SDXL |
+| `clip_skip_2` | booléen | non | `false` | Active « Clip skip 2 » selon la convention A1111 pour les deux encodeurs CLIP de SDXL |
 | `model` | texte | oui | — | `name` renvoyé par `GET /models` |
 | `cfg` | nombre | non | `7.0` | CFG entre 0 et 30 |
 | `steps` | entier | non | `20` | Nombre de steps entre 1 et 200 |
@@ -227,6 +227,9 @@ La résolution est actuellement fixée à `1024 × 1024`. Si `negative_prompt` e
 omis, le prompt négatif par défaut du pipeline est appliqué. Envoyer une chaîne
 vide permet de le désactiver explicitement. `clip_skip_2` accepte les valeurs
 booléennes de formulaire reconnues par FastAPI, notamment `true` et `false`.
+La valeur `true` est traduite en `clip_skip=1` pour Diffusers : elle sélectionne
+`hidden_states[-3]`. La valeur `false` conserve le comportement SDXL natif,
+`hidden_states[-2]`.
 
 Le backend compte séparément les jetons produits par les deux tokenizers de
 SDXL, sans inclure les marqueurs BOS/EOS. Jusqu'à 75 jetons utiles, l'encodage

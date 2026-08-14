@@ -410,7 +410,10 @@ class ImageGenerator:
                 result = sdxl.generate(
                     prompt=prompt,
                     negative_prompt=negative_prompt,
-                    clip_skip=2 if clip_skip_2 else None,
+                    # La convention A1111 « Clip skip 2 » ignore une couche.
+                    # Diffusers numérote les couches supplémentaires ignorées
+                    # à partir de 1 : sa valeur équivalente est donc 1.
+                    clip_skip=1 if clip_skip_2 else None,
                     seed=seed,
                     steps=steps,
                     width=width,
