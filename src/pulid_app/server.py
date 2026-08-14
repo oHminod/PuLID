@@ -41,7 +41,7 @@ from pulid_app.paths import (
     require_models_root,
     resolve_sdxl_checkpoint,
 )
-from pulid_app.pipeline.generator import ImageGenerator
+from pulid_app.pipeline.generator import DEFAULT_NEGATIVE_PROMPT, ImageGenerator
 
 
 DEFAULT_METHOD = "default"
@@ -275,6 +275,8 @@ class GenerationService:
         reference_content: bytes,
         character: str,
         prompt: str,
+        negative_prompt: str | None,
+        clip_skip_2: bool,
         model: str,
         cfg: float,
         steps: int,
@@ -285,6 +287,11 @@ class GenerationService:
     ) -> GeneratedPayload:
         selected_character = character.strip()
         selected_prompt = prompt.strip()
+        selected_negative_prompt = (
+            DEFAULT_NEGATIVE_PROMPT
+            if negative_prompt is None
+            else negative_prompt.strip()
+        )
         if not selected_character:
             raise ValueError("Le nom du personnage ne peut pas être vide.")
         if not selected_prompt:
@@ -323,6 +330,8 @@ class GenerationService:
             )
             generated = generator.generate_in_memory(
                 prompt=selected_prompt,
+                negative_prompt=selected_negative_prompt,
+                clip_skip_2=clip_skip_2,
                 identity=identity,
                 seed=effective_seed,
                 steps=steps,
@@ -439,6 +448,8 @@ def create_app(
         character: Annotated[str, Form(min_length=1, max_length=100)],
         prompt: Annotated[str, Form(min_length=1, max_length=4000)],
         model: Annotated[str, Form(min_length=1, max_length=255)],
+        negative_prompt: Annotated[str | None, Form(max_length=4000)] = None,
+        clip_skip_2: Annotated[bool, Form()] = False,
         cfg: Annotated[float, Form(ge=0, le=30)] = 7.0,
         steps: Annotated[int, Form(ge=1, le=200)] = 20,
         strength: Annotated[
@@ -456,6 +467,8 @@ def create_app(
                     reference_content=reference,
                     character=character,
                     prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    clip_skip_2=clip_skip_2,
                     model=model,
                     cfg=cfg,
                     steps=steps,

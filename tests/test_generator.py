@@ -206,6 +206,8 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
 
     generated = generator.generate(
         prompt="portrait",
+        negative_prompt="bad anatomy",
+        clip_skip_2=True,
         identity=identity,
         seed=7,
         width=64,
@@ -224,6 +226,8 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert sdxl.sampling_calls == [("dpmpp_2m_sde", "karras")]
     assert sdxl.generate_calls[0]["seed"] == 7
     assert sdxl.generate_calls[0]["guidance_scale"] == 4.5
+    assert sdxl.generate_calls[0]["negative_prompt"] == "bad anatomy"
+    assert sdxl.generate_calls[0]["clip_skip"] == 2
     assert sdxl.generate_calls[0]["cross_attention_kwargs"]["cfg"] is True
     assert adapter.identity_calls == [(adapter.conditioning, 0.9)]
     assert adapter.clear_calls == 1
@@ -232,6 +236,8 @@ def test_generate_saves_png_json_and_forwards_effective_parameters(
     assert metadata["identity_id"] == "noemie"
     assert metadata["identity_cache_hit"] is True
     assert metadata["seed"] == 7
+    assert metadata["negative_prompt"] == "bad anatomy"
+    assert metadata["clip_skip_2"] is True
     assert metadata["sampling_method"] == "dpmpp_2m_sde"
     assert metadata["sigma_schedule"] == "karras"
     assert metadata["sdxl_checkpoint"] == str(generator.config.sdxl.checkpoint)

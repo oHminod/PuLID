@@ -213,6 +213,8 @@ Champs du formulaire :
 | `reference` | fichier | oui | — | JPEG, PNG, WebP, BMP ou TIFF, 20 Mio maximum |
 | `character` | texte | oui | — | Nom du personnage, 1 à 100 caractères |
 | `prompt` | texte | oui | — | Prompt positif, 1 à 4000 caractères et 255 jetons CLIP utiles maximum |
+| `negative_prompt` | texte | non | prompt négatif du pipeline | Prompt négatif, 4000 caractères et 255 jetons CLIP utiles maximum ; une chaîne vide le désactive |
+| `clip_skip_2` | booléen | non | `false` | Active `clip_skip=2` pour les deux encodeurs CLIP de SDXL |
 | `model` | texte | oui | — | `name` renvoyé par `GET /models` |
 | `cfg` | nombre | non | `7.0` | CFG entre 0 et 30 |
 | `steps` | entier | non | `20` | Nombre de steps entre 1 et 200 |
@@ -221,8 +223,10 @@ Champs du formulaire :
 | `sigmas` | texte | non | `normal` | `sigma_schedules[].name` compatible avec `method` |
 | `seed` | entier | non | `0` | `0` ou `-1` = aléatoire ; sinon 1 à 2^63−1 |
 
-La résolution est actuellement fixée à `1024 × 1024`. Le prompt négatif par
-défaut du pipeline est appliqué.
+La résolution est actuellement fixée à `1024 × 1024`. Si `negative_prompt` est
+omis, le prompt négatif par défaut du pipeline est appliqué. Envoyer une chaîne
+vide permet de le désactiver explicitement. `clip_skip_2` accepte les valeurs
+booléennes de formulaire reconnues par FastAPI, notamment `true` et `false`.
 
 Le backend compte séparément les jetons produits par les deux tokenizers de
 SDXL, sans inclure les marqueurs BOS/EOS. Jusqu'à 75 jetons utiles, l'encodage
@@ -242,6 +246,8 @@ curl --fail-with-body \
   --form reference=@inputs/noemie.webp \
   --form character=noemie \
   --form 'prompt=cinematic portrait of a woman standing in Tokyo at night' \
+  --form 'negative_prompt=bad anatomy, watermark' \
+  --form clip_skip_2=true \
   --form model=reaxl_v30 \
   --form cfg=4.5 \
   --form steps=20 \
@@ -284,6 +290,8 @@ type GenerateInput = {
   reference: File;
   character: string;
   prompt: string;
+  negativePrompt?: string;
+  clipSkip2?: boolean;
   model: string;
   cfg: number;
   steps: number;
@@ -298,6 +306,10 @@ export async function generateImage(input: GenerateInput) {
   form.append("reference", input.reference);
   form.append("character", input.character);
   form.append("prompt", input.prompt);
+  if (input.negativePrompt !== undefined) {
+    form.append("negative_prompt", input.negativePrompt);
+  }
+  form.append("clip_skip_2", String(input.clipSkip2 ?? false));
   form.append("model", input.model);
   form.append("cfg", String(input.cfg));
   form.append("steps", String(input.steps));

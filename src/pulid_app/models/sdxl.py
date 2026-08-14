@@ -775,6 +775,7 @@ class SDXLModel:
         token_sets: tuple[_PromptTokens, _PromptTokens],
         *,
         block_count: int,
+        clip_skip: int | None,
     ) -> tuple[Any, Any]:
         """Encode puis concatène les blocs des deux CLIP de SDXL."""
 
@@ -799,19 +800,24 @@ class SDXLModel:
             )
             encoded = text_encoder(input_ids, output_hidden_states=True)
             encoder_hidden_states = getattr(encoded, "hidden_states", None)
-            if not encoder_hidden_states or len(encoder_hidden_states) < 2:
+            hidden_state_offset = (clip_skip + 2) if clip_skip is not None else 2
+            if (
+                not encoder_hidden_states
+                or len(encoder_hidden_states) < hidden_state_offset
+            ):
                 raise SDXLConfigurationError(
-                    "Un encodeur CLIP n'a pas retourné ses états cachés intermédiaires."
+                    "Un encodeur CLIP n'a pas retourné assez d'états cachés "
+                    f"pour clip_skip={clip_skip}."
                 )
-            penultimate = encoder_hidden_states[-2]
-            if len(penultimate.shape) != 3:
+            selected_hidden_state = encoder_hidden_states[-hidden_state_offset]
+            if len(selected_hidden_state.shape) != 3:
                 raise SDXLConfigurationError(
                     "Shape CLIP inattendue pour les états cachés : "
-                    f"{tuple(penultimate.shape)}."
+                    f"{tuple(selected_hidden_state.shape)}."
                 )
-            batch_size, sequence_length, hidden_size = penultimate.shape
+            batch_size, sequence_length, hidden_size = selected_hidden_state.shape
             hidden_states.append(
-                penultimate.reshape(
+                selected_hidden_state.reshape(
                     1,
                     int(batch_size) * int(sequence_length),
                     int(hidden_size),
@@ -839,6 +845,7 @@ class SDXLModel:
         prompt: str,
         negative_prompt: str | None,
         guidance_scale: float,
+        clip_skip: int | None,
     ) -> dict[str, Any] | None:
         """Prépare des embeddings segmentés seulement lorsqu'un texte dépasse un bloc."""
 
@@ -897,6 +904,7 @@ class SDXLModel:
             torch_module,
             positive_tokens,
             block_count=block_count,
+            clip_skip=clip_skip,
         )
         prepared = {
             "prompt_embeds": prompt_embeds,
@@ -917,6 +925,7 @@ class SDXLModel:
                     torch_module,
                     negative_tokens,
                     block_count=block_count,
+                    clip_skip=clip_skip,
                 )
             prepared.update(
                 {
@@ -932,6 +941,7 @@ class SDXLModel:
         *,
         prompt: str,
         negative_prompt: str | None,
+        clip_skip: int | None,
         seed: int,
         steps: int,
         width: int,
@@ -952,6 +962,8 @@ class SDXLModel:
             "height": height,
             "num_images_per_prompt": 1,
         }
+        if clip_skip is not None:
+            generation_kwargs["clip_skip"] = clip_skip
         if cross_attention_kwargs:
             # Canal générique : SDXL ne connaît ni PuLID ni le producteur de ces
             # paramètres, il les transmet seulement aux processeurs installés.
@@ -969,10 +981,12 @@ class SDXLModel:
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                     guidance_scale=guidance_scale,
+                    clip_skip=clip_skip,
                 )
                 if long_prompt_kwargs is not None:
                     generation_kwargs.pop("prompt")
                     generation_kwargs.pop("negative_prompt")
+                    generation_kwargs.pop("clip_skip", None)
                     generation_kwargs.update(long_prompt_kwargs)
                     stage_durations["prompt_preparation"] += (
                         time.monotonic() - prompt_started
@@ -987,6 +1001,7 @@ class SDXLModel:
         *,
         prompt: str,
         negative_prompt: str | None = None,
+        clip_skip: int | None = None,
         seed: int = 42,
         steps: int = 20,
         width: int = 1024,
@@ -1000,6 +1015,12 @@ class SDXLModel:
         self._validate_generation_parameters(
             prompt, seed, steps, width, height, guidance_scale
         )
+        if clip_skip is not None and (
+            isinstance(clip_skip, bool) or not isinstance(clip_skip, int) or clip_skip < 1
+        ):
+            raise SDXLConfigurationError(
+                "clip_skip doit être un entier strictement positif ou None."
+            )
         self.load()
         torch_module, pipeline_class = self._import_ml()
         self.memory_manager.bind_torch(torch_module)
@@ -1009,6 +1030,7 @@ class SDXLModel:
                 torch_module,
                 prompt=prompt,
                 negative_prompt=negative_prompt,
+                clip_skip=clip_skip,
                 seed=seed,
                 steps=steps,
                 width=width,
@@ -1042,6 +1064,7 @@ class SDXLModel:
                     torch_module,
                     prompt=prompt,
                     negative_prompt=negative_prompt,
+                    clip_skip=clip_skip,
                     seed=seed,
                     steps=steps,
                     width=width,

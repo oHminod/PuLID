@@ -281,6 +281,8 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
         data={
             "character": "Noémie",
             "prompt": "cinematic portrait",
+            "negative_prompt": "bad anatomy, watermark",
+            "clip_skip_2": "true",
             "model": "reaxl_v30",
             "cfg": "4.5",
             "steps": "8",
@@ -311,6 +313,8 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     assert instance.encode_kwargs["identity_id"] == "Noémie"
     assert instance.encode_kwargs["source_name"] == "<http-upload>"
     assert instance.generate_kwargs["seed"] == 987654321
+    assert instance.generate_kwargs["negative_prompt"] == "bad anatomy, watermark"
+    assert instance.generate_kwargs["clip_skip_2"] is True
     assert instance.generate_kwargs["steps"] == 8
     assert instance.generate_kwargs["guidance_scale"] == 4.5
     assert instance.generate_kwargs["identity_strength"] == 1.25
@@ -343,6 +347,12 @@ def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> No
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sampling_method"] is None
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sigma_schedule"] is None
     assert FakeMemoryGenerator.instances[0].generate_kwargs["identity_strength"] == 0.8
+    assert (
+        FakeMemoryGenerator.instances[0].generate_kwargs["negative_prompt"]
+        == "flaws in the eyes, flaws in the face, low quality, worst quality, "
+        "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
+    )
+    assert FakeMemoryGenerator.instances[0].generate_kwargs["clip_skip_2"] is False
 
 
 @pytest.mark.parametrize("strength", ["-0.1", "nan", "inf"])

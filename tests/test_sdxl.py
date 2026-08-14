@@ -57,7 +57,7 @@ class FakeTokenizer:
 class FakeEncoderOutput:
     def __init__(self, first_output: np.ndarray, hidden: np.ndarray) -> None:
         self._first_output = first_output
-        self.hidden_states = (hidden, hidden, hidden)
+        self.hidden_states = tuple(hidden * layer for layer in range(1, 6))
 
     def __getitem__(self, index: int) -> np.ndarray:
         if index != 0:
@@ -352,6 +352,7 @@ def test_generate_keeps_native_diffusers_encoding_for_short_prompts(
     model.generate(
         prompt="short portrait prompt",
         negative_prompt="bad anatomy",
+        clip_skip=2,
         steps=2,
         width=64,
         height=64,
@@ -360,7 +361,38 @@ def test_generate_keeps_native_diffusers_encoding_for_short_prompts(
     assert model.pipeline is not None
     assert model.pipeline.generation_kwargs["prompt"] == "short portrait prompt"
     assert model.pipeline.generation_kwargs["negative_prompt"] == "bad anatomy"
+    assert model.pipeline.generation_kwargs["clip_skip"] == 2
     assert "prompt_embeds" not in model.pipeline.generation_kwargs
+
+
+def test_generate_applies_clip_skip_two_to_long_prompt_embeddings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    class LongPromptPipeline(FakePipeline):
+        def __init__(self) -> None:
+            super().__init__()
+            self._execution_device = "cpu"
+            self.text_encoder = FakeTextEncoder(2, pooled=False)
+            self.text_encoder_2 = FakeTextEncoder(3, pooled=True)
+
+    model = SDXLModel(checkpoint, config_dir, models_root=tmp_path, device="cpu")
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), LongPromptPipeline))
+
+    model.generate(
+        prompt=" ".join(f"word-{index}" for index in range(76)),
+        negative_prompt="bad anatomy",
+        clip_skip=2,
+        steps=2,
+        width=64,
+        height=64,
+    )
+
+    assert model.pipeline is not None
+    kwargs = model.pipeline.generation_kwargs
+    assert "clip_skip" not in kwargs
+    assert np.all(kwargs["prompt_embeds"][0, 0] == 2)
 
 
 @pytest.mark.parametrize(
