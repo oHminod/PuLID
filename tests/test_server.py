@@ -269,7 +269,7 @@ def test_models_endpoint_lists_sampling_methods_and_sigmas_separately(
     }
 
 
-def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> None:
+def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path) -> None:
     app = _app(tmp_path)
     files_before = {path for path in tmp_path.rglob("*") if path.is_file()}
 
@@ -312,6 +312,7 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     )
     assert instance.encode_kwargs["identity_id"] == "Noémie"
     assert instance.encode_kwargs["source_name"] == "<http-upload>"
+    assert instance.encode_kwargs["use_cache"] is True
     assert instance.generate_kwargs["seed"] == 987654321
     assert instance.generate_kwargs["negative_prompt"] == "bad anatomy, watermark"
     assert instance.generate_kwargs["clip_skip_2"] is True
@@ -323,7 +324,6 @@ def test_generate_returns_png_headers_and_writes_no_artifact(tmp_path: Path) -> 
     assert instance.closed is True
     assert {path for path in tmp_path.rglob("*") if path.is_file()} == files_before
     assert not (tmp_path / "outputs").exists()
-    assert not (tmp_path / "cache").exists()
 
 
 def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> None:

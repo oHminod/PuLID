@@ -418,6 +418,36 @@ class IdentityEncoder:
             )
         return Path(selected).expanduser().resolve(strict=False)
 
+    @staticmethod
+    def _sha256_image_array(image_bgr: NDArray[np.uint8]) -> str:
+        """Calcule une clé stable pour les pixels BGR décodés en mémoire."""
+
+        digest = hashlib.sha256()
+        digest.update(b"pulid-bgr-uint8-v1\0")
+        digest.update("x".join(str(size) for size in image_bgr.shape).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(memoryview(image_bgr).cast("B"))
+        return digest.hexdigest()
+
+    def _cache_path_for_hash(
+        self,
+        *,
+        identity_id: str,
+        source_hash: str,
+        face_index: int | None,
+        cache_dir: str | Path | None,
+        encoder_fingerprint: str | None = None,
+    ) -> Path:
+        identity_id = identity_id.strip()
+        self._identity_slug(identity_id)
+        fingerprint = encoder_fingerprint or self._encoder_fingerprint()
+        selector = "auto" if face_index is None else f"face-{face_index}"
+        filename = (
+            f"{self._identity_slug(identity_id)}_{source_hash[:24]}_{selector}_"
+            f"{fingerprint[:12]}.npz"
+        )
+        return self._effective_cache_dir(cache_dir) / filename
+
     def cache_path_for(
         self,
         image: str | Path,
@@ -428,19 +458,35 @@ class IdentityEncoder:
     ) -> Path:
         """Retourne le chemin adressé par le contenu et la configuration d'encodage."""
 
-        identity_id = identity_id.strip()
-        self._identity_slug(identity_id)
         source = Path(image).expanduser().resolve(strict=False)
         try:
             source_hash = sha256_file(source)
         except IdentitySerializationError as exc:
             raise IdentityCacheError(str(exc)) from exc
-        selector = "auto" if face_index is None else f"face-{face_index}"
-        filename = (
-            f"{self._identity_slug(identity_id)}_{source_hash[:24]}_{selector}_"
-            f"{self._encoder_fingerprint()[:12]}.npz"
+        return self._cache_path_for_hash(
+            identity_id=identity_id,
+            source_hash=source_hash,
+            face_index=face_index,
+            cache_dir=cache_dir,
         )
-        return self._effective_cache_dir(cache_dir) / filename
+
+    def cache_path_for_array(
+        self,
+        image_bgr: NDArray[np.uint8],
+        *,
+        identity_id: str,
+        face_index: int | None = None,
+        cache_dir: str | Path | None = None,
+    ) -> Path:
+        """Retourne le cache adressé par les pixels d'une image en mémoire."""
+
+        image_array = self._load_image(image_bgr)
+        return self._cache_path_for_hash(
+            identity_id=identity_id,
+            source_hash=self._sha256_image_array(image_array),
+            face_index=face_index,
+            cache_dir=cache_dir,
+        )
 
     def _validate_cached_identity(
         self,
@@ -493,10 +539,71 @@ class IdentityEncoder:
         except IdentitySerializationError as exc:
             raise IdentityCacheError(str(exc)) from exc
         encoder_fingerprint = self._encoder_fingerprint()
-        selector = "auto" if face_index is None else f"face-{face_index}"
-        cache_path = self._effective_cache_dir(cache_dir) / (
-            f"{self._identity_slug(identity_id)}_{source_hash[:24]}_{selector}_"
-            f"{encoder_fingerprint[:12]}.npz"
+        return self._encode_array_with_cache(
+            image_bgr,
+            identity_id=identity_id,
+            source_name=str(image_info.path),
+            source_hash=source_hash,
+            source_format=image_info.format,
+            source_width=image_info.width,
+            source_height=image_info.height,
+            face_index=face_index,
+            cache_dir=cache_dir,
+            force_recompute=force_recompute,
+            encoder_fingerprint=encoder_fingerprint,
+        )
+
+    def encode_array_cached(
+        self,
+        image_bgr: NDArray[np.uint8],
+        *,
+        identity_id: str,
+        source_name: str = "<memory>",
+        face_index: int | None = None,
+        cache_dir: str | Path | None = None,
+        force_recompute: bool = False,
+    ) -> CharacterIdentity:
+        """Encode des pixels BGR et crée ou réutilise leur cache NPZ."""
+
+        identity_id = identity_id.strip()
+        self._identity_slug(identity_id)
+        image_array = self._load_image(image_bgr)
+        source_hash = self._sha256_image_array(image_array)
+        return self._encode_array_with_cache(
+            image_array,
+            identity_id=identity_id,
+            source_name=source_name,
+            source_hash=source_hash,
+            source_format="BGR_UINT8",
+            source_width=int(image_array.shape[1]),
+            source_height=int(image_array.shape[0]),
+            face_index=face_index,
+            cache_dir=cache_dir,
+            force_recompute=force_recompute,
+            encoder_fingerprint=self._encoder_fingerprint(),
+        )
+
+    def _encode_array_with_cache(
+        self,
+        image_bgr: NDArray[np.uint8],
+        *,
+        identity_id: str,
+        source_name: str,
+        source_hash: str,
+        source_format: str,
+        source_width: int,
+        source_height: int,
+        face_index: int | None,
+        cache_dir: str | Path | None,
+        force_recompute: bool,
+        encoder_fingerprint: str,
+    ) -> CharacterIdentity:
+        cache_path = self._cache_path_for_hash(
+            identity_id=identity_id,
+            source_hash=source_hash,
+            face_index=face_index,
+            cache_dir=cache_dir,
+            encoder_fingerprint=encoder_fingerprint,
         )
 
         if cache_path.is_file() and not force_recompute:
@@ -515,10 +622,10 @@ class IdentityEncoder:
                 encoder_fingerprint=encoder_fingerprint,
                 cache_path=cache_path,
             )
-            if cached.source_images != [str(image_info.path)]:
+            if cached.source_images != [source_name]:
                 cached = CharacterIdentity(
                     id=cached.id,
-                    source_images=[str(image_info.path)],
+                    source_images=[source_name],
                     face_embedding=cached.face_embedding,
                     metadata=cached.metadata,
                 )
@@ -527,13 +634,13 @@ class IdentityEncoder:
         encoded = self._encode_array(image_bgr, face_index)
         identity = CharacterIdentity(
             id=identity_id,
-            source_images=[str(image_info.path)],
+            source_images=[source_name],
             face_embedding=encoded.embedding,
             metadata={
                 "source_sha256": source_hash,
-                "source_format": image_info.format,
-                "source_width": image_info.width,
-                "source_height": image_info.height,
+                "source_format": source_format,
+                "source_width": source_width,
+                "source_height": source_height,
                 "model_dir": str(self.model_dir),
                 "providers": list(self.providers),
                 "encoder_fingerprint": encoder_fingerprint,

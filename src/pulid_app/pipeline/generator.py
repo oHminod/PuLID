@@ -234,8 +234,9 @@ class ImageGenerator:
         identity_id: str,
         face_index: int | None = None,
         source_name: str = "<memory>",
+        use_cache: bool = False,
     ) -> EncodedIdentity:
-        """Encode une image RGB en mémoire sans lire ni écrire de cache NPZ."""
+        """Encode une image RGB en mémoire, avec cache NPZ optionnel."""
 
         import numpy as np
         from PIL import Image as PILImage, ImageOps
@@ -263,26 +264,41 @@ class ImageGenerator:
             )
 
         started = time.monotonic()
+        cache_path: Path | None = None
+        cache_hit = False
         try:
-            encoded = self._get_identity_encoder().encode(
-                np.ascontiguousarray(rgb[:, :, ::-1]),
-                face_index=face_index,
-            )
-            character = CharacterIdentity(
-                id=selected_id,
-                source_images=[source_name],
-                face_embedding=encoded.embedding,
-                metadata={
-                    "source": "memory",
-                    "source_width": int(rgb.shape[1]),
-                    "source_height": int(rgb.shape[0]),
-                    "selected_face_index": encoded.face_index,
-                    "face_count": encoded.face_count,
-                    "bounding_box": list(encoded.detection.bbox),
-                    "detection_score": encoded.detection.score,
-                    "embedding_norm_l2": encoded.norm,
-                },
-            )
+            encoder = self._get_identity_encoder()
+            image_bgr = np.ascontiguousarray(rgb[:, :, ::-1])
+            if use_cache:
+                cache_path = encoder.cache_path_for_array(
+                    image_bgr,
+                    identity_id=selected_id,
+                    face_index=face_index,
+                )
+                cache_hit = cache_path.is_file()
+                character = encoder.encode_array_cached(
+                    image_bgr,
+                    identity_id=selected_id,
+                    source_name=source_name,
+                    face_index=face_index,
+                )
+            else:
+                encoded = encoder.encode(image_bgr, face_index=face_index)
+                character = CharacterIdentity(
+                    id=selected_id,
+                    source_images=[source_name],
+                    face_embedding=encoded.embedding,
+                    metadata={
+                        "source": "memory",
+                        "source_width": int(rgb.shape[1]),
+                        "source_height": int(rgb.shape[0]),
+                        "selected_face_index": encoded.face_index,
+                        "face_count": encoded.face_count,
+                        "bounding_box": list(encoded.detection.bbox),
+                        "detection_score": encoded.detection.score,
+                        "embedding_norm_l2": encoded.norm,
+                    },
+                )
             conditioning = self._get_adapter().prepare_identity(
                 rgb_image,
                 face_embedding=character.face_embedding,
@@ -296,8 +312,8 @@ class ImageGenerator:
         return EncodedIdentity(
             character=character,
             conditioning=conditioning,
-            cache_path=None,
-            cache_hit=False,
+            cache_path=cache_path,
+            cache_hit=cache_hit,
             duration_seconds=time.monotonic() - started,
         )
 

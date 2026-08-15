@@ -53,6 +53,10 @@ class FakeIdentityEncoder:
         self.cache_calls.append({"image": image, **kwargs})
         return self.cache_path
 
+    def cache_path_for_array(self, image: np.ndarray, **kwargs: object) -> Path:
+        self.cache_calls.append({"image": image, **kwargs})
+        return self.cache_path
+
     def encode_image(self, image: Path, **kwargs: object) -> CharacterIdentity:
         self.encode_calls.append({"image": image, **kwargs})
         return CharacterIdentity(
@@ -60,6 +64,17 @@ class FakeIdentityEncoder:
             source_images=[str(image)],
             face_embedding=np.ones(512, dtype=np.float32),
             metadata={"source_format": "WEBP"},
+        )
+
+    def encode_array_cached(
+        self, image: np.ndarray, **kwargs: object
+    ) -> CharacterIdentity:
+        self.encode_calls.append({"image": image, **kwargs})
+        return CharacterIdentity(
+            id=str(kwargs["identity_id"]),
+            source_images=[str(kwargs["source_name"])],
+            face_embedding=np.ones(512, dtype=np.float32),
+            metadata={"source_format": "BGR_UINT8"},
         )
 
     def encode(self, image: np.ndarray, **kwargs: object) -> object:
@@ -284,6 +299,29 @@ def test_memory_path_never_creates_identity_or_output_files(tmp_path: Path) -> N
     assert sdxl.generate_calls[0]["clip_skip"] is None
     assert not generator.config.outputs_dir.exists()
     assert not generator.config.identity_cache_dir.exists()
+
+
+def test_memory_path_can_reuse_identity_cache_without_writing_outputs(
+    tmp_path: Path,
+) -> None:
+    generator, encoder, adapter, _sdxl = _generator_with_fakes(tmp_path)
+    encoder.cache_path.parent.mkdir(parents=True)
+    encoder.cache_path.touch()
+
+    identity = generator.encode_identity_memory(
+        Image.new("RGB", (16, 16), "white"),
+        identity_id="Noémie",
+        source_name="<http-upload>",
+        use_cache=True,
+    )
+
+    assert identity.cache_hit is True
+    assert identity.cache_path == encoder.cache_path
+    assert identity.source_images == ("<http-upload>",)
+    assert encoder.cache_calls[0]["identity_id"] == "Noémie"
+    assert encoder.encode_calls[0]["source_name"] == "<http-upload>"
+    assert adapter.prepare_calls[0]["face_embedding"].shape == (512,)
+    assert not generator.config.outputs_dir.exists()
 
 
 def test_generate_rejects_identity_from_another_api(tmp_path: Path) -> None:

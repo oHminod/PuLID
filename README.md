@@ -323,7 +323,8 @@ PULID_RUN_SLOW=1 pytest -m 'integration and slow'
 ## Serveur HTTP pour frontend
 
 Le serveur local expose `GET /models` et `POST /generate`. La génération HTTP
-renvoie directement un PNG et n'écrit ni output, ni JSON, ni cache d'identité :
+renvoie directement un PNG, n'écrit ni output ni JSON, et crée ou réutilise le
+petit cache ArcFace sous `cache/identity/` :
 
 ```bash
 uv pip install -e '.[inference,pulid,server]'

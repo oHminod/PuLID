@@ -6,11 +6,12 @@ Ce serveur HTTP local expose exactement deux routes applicatives :
   et les courbes de sigmas compatibles ;
 - `POST /generate` génère une image et renvoie directement le PNG.
 
-La génération HTTP est entièrement séparée du chemin CLI avec sauvegarde. Elle
-ne crée ni image dans `outputs/`, ni manifeste JSON, ni cache d'identité NPZ.
-L'image de référence, l'embedding, le conditionnement PuLID et le PNG de réponse
-restent en mémoire. Le frontend est responsable du téléchargement ou du stockage
-du PNG reçu.
+La génération HTTP est séparée du chemin CLI avec sauvegarde. Elle ne crée ni
+image dans `outputs/`, ni manifeste JSON. L'image de référence, le
+conditionnement PuLID et le PNG de réponse restent en mémoire. Le petit embedding
+ArcFace est créé ou réutilisé sous `cache/identity/`, avec une clé dérivée des
+pixels décodés et du nom du personnage. Le frontend reste responsable du
+téléchargement ou du stockage du PNG reçu.
 
 ## Démarrage du serveur
 
@@ -434,10 +435,10 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 - une seule génération est exécutée à la fois ; une requête concurrente attend
   la fin de la précédente afin de protéger la mémoire MPS/CUDA ;
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
-- l'identité est calculée sans cache NPZ ;
+- l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
 - les composants du pipeline sont fermés après la réponse ;
-- aucun PNG, JSON ou fichier d'identité n'est créé par l'application serveur.
+- aucun PNG ni manifeste JSON n'est créé par l'application serveur.
 
 Une génération peut prendre plusieurs dizaines de secondes. Le proxy ou le
 client HTTP du frontend doit utiliser un timeout adapté, par exemple deux à cinq

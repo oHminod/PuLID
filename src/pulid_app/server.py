@@ -248,7 +248,7 @@ def _sampling_selection(method: str, sigmas: str) -> tuple[str | None, str | Non
 
 
 class GenerationService:
-    """Orchestre une requête complète sans artefact applicatif sur disque."""
+    """Orchestre une requête et ne persiste que le petit cache d'identité."""
 
     def __init__(
         self,
@@ -327,6 +327,7 @@ class GenerationService:
                 reference_image,
                 identity_id=selected_character,
                 source_name="<http-upload>",
+                use_cache=True,
             )
             generated = generator.generate_in_memory(
                 prompt=selected_prompt,

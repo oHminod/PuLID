@@ -170,3 +170,38 @@ def test_cache_normalizes_character_name(tmp_path: Path) -> None:
     assert first.id == "noemie"
     assert second.id == "noemie"
     assert cold_encoder.is_loaded is False
+
+
+def test_second_encode_array_cached_call_reuses_content_cache(tmp_path: Path) -> None:
+    model_dir = tmp_path / "antelopev2"
+    model_dir.mkdir()
+    (model_dir / "scrfd_10g_bnkps.onnx").write_bytes(b"detector")
+    (model_dir / "glintr100.onnx").write_bytes(b"recognizer")
+    cache_dir = tmp_path / "cache" / "identity"
+    image_bgr = np.full((32, 32, 3), (40, 80, 120), dtype=np.uint8)
+
+    encoder = _loaded_encoder(model_dir, face_count=1)
+    encoder.identity_cache_dir = cache_dir
+    recognizer = encoder._recognizer
+    first = encoder.encode_array_cached(
+        image_bgr,
+        identity_id="noemie",
+        source_name="<http-upload>",
+    )
+
+    assert isinstance(recognizer, FakeRecognizer)
+    assert recognizer.calls == 1
+    cache_path = encoder.cache_path_for_array(image_bgr, identity_id="noemie")
+    assert cache_path.is_file()
+
+    cold_encoder = IdentityEncoder(model_dir, identity_cache_dir=cache_dir)
+    second = cold_encoder.encode_array_cached(
+        image_bgr,
+        identity_id="noemie",
+        source_name="<http-upload>",
+    )
+
+    assert cold_encoder.is_loaded is False
+    assert second.id == "noemie"
+    assert second.metadata["source_format"] == "BGR_UINT8"
+    np.testing.assert_array_equal(second.face_embedding, first.face_embedding)
