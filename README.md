@@ -331,6 +331,11 @@ uv pip install -e '.[inference,pulid,server]'
 pulid-server --device mps --cors-origin http://localhost:3000
 ```
 
+Avec `--device cuda`, le pipeline SDXL reste chargé en VRAM entre deux requêtes
+utilisant le même checkpoint. Il est déchargé lorsqu'une requête sélectionne un
+autre modèle ou lorsque le serveur s'arrête. MPS et CPU conservent le nettoyage
+après chaque génération.
+
 Le contrat complet, les champs multipart, headers de réponse et exemples
 TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
 

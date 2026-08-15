@@ -190,7 +190,7 @@ method=dpmpp_2m_sde + sigmas=karras
 
 `dpmpp_2m_sde_karras` n'est plus une valeur acceptée pour `method`.
 
-Les modèles sont relus à chaque appel depuis :
+L'inventaire des modèles est relu à chaque appel de `GET /models` depuis :
 
 ```text
 /Volumes/SSD/Documents/PuLID_models/checkpoints/*.safetensors
@@ -437,7 +437,11 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
 - l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
-- les composants du pipeline sont fermés après la réponse ;
+- sur CUDA, le générateur et son pipeline SDXL restent chargés après la réponse
+  tant que les requêtes suivantes utilisent le même checkpoint ; sélectionner un
+  autre modèle ferme d'abord le générateur précédent afin de libérer sa VRAM ;
+- sur MPS et CPU, les composants du pipeline sont fermés après chaque réponse ;
+- le générateur CUDA encore actif est fermé à l'arrêt du serveur ;
 - aucun PNG ni manifeste JSON n'est créé par l'application serveur.
 
 Une génération peut prendre plusieurs dizaines de secondes. Le proxy ou le

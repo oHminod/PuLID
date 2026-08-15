@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO
@@ -268,6 +269,53 @@ class GenerationService:
         self.generator_factory = generator_factory
         self.now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self.random_seed = random_seed
+        self._cuda_generator: Any | None = None
+        self._cuda_checkpoint: Path | None = None
+
+    def _uses_cuda(self, generator: Any) -> bool:
+        selected_device = self.device
+        if selected_device is None:
+            try:
+                selected_device = str(generator.device)
+            except AttributeError:
+                return False
+        return selected_device.strip().casefold().split(":", maxsplit=1)[0] == "cuda"
+
+    def _close_cuda_generator(self) -> None:
+        generator = self._cuda_generator
+        self._cuda_generator = None
+        self._cuda_checkpoint = None
+        if generator is not None:
+            generator.close()
+
+    def _generator_for(
+        self,
+        request_config: AppConfig,
+        checkpoint: Path,
+    ) -> tuple[Any, bool]:
+        normalized_checkpoint = checkpoint.resolve(strict=False)
+        if self._cuda_generator is not None:
+            if self._cuda_checkpoint == normalized_checkpoint:
+                return self._cuda_generator, True
+            self._close_cuda_generator()
+
+        generator = self.generator_factory(
+            request_config,
+            device=self.device,
+            dtype_name=self.dtype_name,
+            offload_strategy=self.offload_strategy,
+            allow_downloads=False,
+        )
+        if self._uses_cuda(generator):
+            self._cuda_generator = generator
+            self._cuda_checkpoint = normalized_checkpoint
+            return generator, True
+        return generator, False
+
+    def close(self) -> None:
+        """Libère le générateur CUDA conservé, notamment à l'arrêt du serveur."""
+
+        self._close_cuda_generator()
 
     def generate(
         self,
@@ -314,14 +362,12 @@ class GenerationService:
         )
 
         generator: Any | None = None
+        generator_is_retained = False
         generation_error: Exception | None = None
         try:
-            generator = self.generator_factory(
+            generator, generator_is_retained = self._generator_for(
                 request_config,
-                device=self.device,
-                dtype_name=self.dtype_name,
-                offload_strategy=self.offload_strategy,
-                allow_downloads=False,
+                checkpoint,
             )
             identity = generator.encode_identity_memory(
                 reference_image,
@@ -350,7 +396,13 @@ class GenerationService:
             generation_error = exc
             raise
         finally:
-            if generator is not None:
+            should_close = generator is not None and (
+                not generator_is_retained or generation_error is not None
+            )
+            if should_close:
+                if generator is self._cuda_generator:
+                    self._cuda_generator = None
+                    self._cuda_checkpoint = None
                 try:
                     generator.close()
                 except PuLIDAppError:
@@ -408,13 +460,23 @@ def create_app(
         now_factory=now_factory,
         random_seed=random_seed,
     )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            await run_in_threadpool(service.close)
+
     app = FastAPI(
         title="PuLID API",
         version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
+    app.state.generation_service = service
     if cors_origins:
         app.add_middleware(
             CORSMiddleware,

@@ -80,11 +80,17 @@ class FakeMemoryGenerator:
         self.closed = True
 
 
-def _app(tmp_path: Path, *, cors_origins: tuple[str, ...] = ()):
+def _app(
+    tmp_path: Path,
+    *,
+    device: str | None = None,
+    cors_origins: tuple[str, ...] = (),
+):
     config, _models = _write_config(tmp_path)
     FakeMemoryGenerator.instances.clear()
     return create_app(
         config,
+        device=device,
         generator_factory=FakeMemoryGenerator,
         now_factory=lambda: datetime(2026, 8, 13, 20, 9, 47, 123456, tzinfo=timezone.utc),
         random_seed=lambda: 987654321,
@@ -102,6 +108,21 @@ def _request(app, method: str, path: str, **kwargs):
             return await client.request(method, path, **kwargs)
 
     return asyncio.run(send())
+
+
+def _generate_request(app, model: str = "realvisxl"):
+    return _request(
+        app,
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "portrait",
+            "model": model,
+            "seed": "42",
+        },
+    )
 
 
 def test_models_endpoint_lists_sampling_methods_and_sigmas_separately(
@@ -353,6 +374,89 @@ def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> No
         "artifacts, text, watermark, deformed, mutated, disfigured, blurry"
     )
     assert FakeMemoryGenerator.instances[0].generate_kwargs["clip_skip_2"] is False
+
+
+def test_cuda_reuses_generator_for_same_checkpoint_until_service_close(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path, device="cuda")
+
+    first = _generate_request(app)
+    second = _generate_request(app)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(FakeMemoryGenerator.instances) == 1
+    generator = FakeMemoryGenerator.instances[0]
+    assert generator.closed is False
+
+    app.state.generation_service.close()
+    app.state.generation_service.close()
+
+    assert generator.closed is True
+
+
+def test_cuda_closes_previous_generator_when_checkpoint_changes(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda")
+
+    first = _generate_request(app, "realvisxl")
+    second = _generate_request(app, "reaxl_v30")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(FakeMemoryGenerator.instances) == 2
+    previous, current = FakeMemoryGenerator.instances
+    assert previous.closed is True
+    assert current.closed is False
+    assert current.config.sdxl.checkpoint.name == "reaxl_v30.safetensors"
+
+    app.state.generation_service.close()
+
+    assert current.closed is True
+
+
+def test_app_shutdown_closes_retained_cuda_generator(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda")
+
+    async def run_with_lifespan() -> FakeMemoryGenerator:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    "/generate",
+                    files={
+                        "reference": ("noemie.png", _image_bytes(), "image/png")
+                    },
+                    data={
+                        "character": "noemie",
+                        "prompt": "portrait",
+                        "model": "realvisxl",
+                        "seed": "42",
+                    },
+                )
+            assert response.status_code == 200
+            generator = FakeMemoryGenerator.instances[0]
+            assert generator.closed is False
+            return generator
+
+    generator = asyncio.run(run_with_lifespan())
+
+    assert generator.closed is True
+
+
+def test_mps_still_closes_generator_after_each_request(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="mps")
+
+    first = _generate_request(app)
+    second = _generate_request(app)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(FakeMemoryGenerator.instances) == 2
+    assert all(generator.closed for generator in FakeMemoryGenerator.instances)
 
 
 @pytest.mark.parametrize("strength", ["-0.1", "nan", "inf"])
