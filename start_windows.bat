@@ -32,5 +32,5 @@ echo.
 echo Arret du serveur : Ctrl+C
 echo.
 
-"%SERVER_EXE%" --host 0.0.0.0 --port 12693 --device cuda --offload model_cpu_offload --cors-origin "*"
+"%SERVER_EXE%" --host 0.0.0.0 --port 12693 --device cuda --dtype float16 --offload none --cors-origin "*"
 exit /b %ERRORLEVEL%
