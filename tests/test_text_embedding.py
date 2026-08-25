@@ -54,6 +54,26 @@ def test_llama_cpp_factory_forces_cpu_and_local_checkpoint(
     }
 
 
+def test_llama_cpp_factory_uses_runtime_thread_defaults(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    checkpoint = tmp_path / "bge-m3-Q8_0.gguf"
+    checkpoint.touch()
+    captured = {}
+
+    def fake_llama(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "llama_cpp", SimpleNamespace(Llama=fake_llama))
+
+    load_llama_cpp_embedding_model(TextEmbeddingConfig(checkpoint=checkpoint))
+
+    assert "n_threads" not in captured
+    assert "n_threads_batch" not in captured
+
+
 def test_embedding_service_rejects_token_overflow_without_truncating(
     tmp_path: Path,
 ) -> None:

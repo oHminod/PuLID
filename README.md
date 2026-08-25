@@ -145,7 +145,7 @@ text_embedding:
   dimensions: 1024
   context_size: 8192
   batch_size: 8192
-  threads: 4
+  threads: 0  # automatique
 ```
 
 Un monofichier SDXL ne contient pas les JSON et tokenizers attendus par

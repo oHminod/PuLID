@@ -65,7 +65,7 @@ text_embedding:
   dimensions: 1024
   context_size: 8192
   batch_size: 8192
-  threads: 4
+  threads: 0  # automatique
 ```
 
 `n_gpu_layers` est fixé à `0`, `offload_kqv` à `false` et `op_offload` à
@@ -74,8 +74,11 @@ HTTP. BGE-M3 étant un encodeur bidirectionnel, `batch_size` doit être supérie
 ou égal à `context_size` : llama.cpp ne peut pas découper une séquence
 d'embedding en micro-lots indépendants. La configuration est refusée au
 démarrage si cette contrainte n'est pas respectée, au lieu de laisser
-llama.cpp interrompre nativement Python sur une entrée longue. Le nombre réduit
-de threads limite la pression CPU pendant une génération SDXL.
+llama.cpp interrompre nativement Python sur une entrée longue. Avec `threads: 0`,
+`llama-cpp-python` choisit automatiquement les threads : tous les CPU logiques
+pour le traitement par lots utilisé par les embeddings. Une valeur positive
+permet de limiter manuellement cette charge si le serveur doit préserver du CPU
+pour d'autres tâches.
 
 ### Lister le modèle d'embedding
 

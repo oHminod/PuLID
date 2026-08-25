@@ -81,6 +81,12 @@ défaut. Pour les encodeurs GGUF tels que BGE-M3, conserver `batch_size` au moin
 provoquer une assertion native de llama.cpp sur les textes longs ; PuLID refuse
 désormais cette configuration au démarrage.
 
+`threads: 0` active le réglage automatique de `llama-cpp-python`. Sur un i9
+10 cœurs / 20 threads, le traitement par lots des embeddings peut ainsi utiliser
+les 20 CPU logiques pendant une reconstruction LanceDB. Cela peut saturer le CPU
+mais ne consomme toujours pas de VRAM ; définir une valeur positive permet de
+réintroduire une limite si nécessaire.
+
 ## Index LanceDB existants
 
 Le modèle et sa dimension restent identiques, mais LM Studio et le runtime

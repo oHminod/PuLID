@@ -46,7 +46,7 @@ text_embedding:
   dimensions: 2
   context_size: 8192
   batch_size: 8192
-  threads: 2
+  threads: 0
 outputs_dir: {tmp_path / 'outputs'}
 identity_cache_dir: {tmp_path / 'cache' / 'identity'}
 device:

@@ -29,23 +29,28 @@ def load_llama_cpp_embedding_model(config: TextEmbeddingConfig) -> Any:
             "puis relancez le serveur."
         ) from exc
 
+    llama_options: dict[str, Any] = {
+        "model_path": str(checkpoint),
+        "embedding": True,
+        "n_gpu_layers": 0,
+        "n_ctx": config.context_size,
+        "n_batch": config.context_size,
+        # Un encodeur bidirectionnel ne peut pas découper une séquence en
+        # micro-lots : llama.cpp exige n_ubatch >= nombre de tokens.
+        "n_ubatch": config.batch_size,
+        "offload_kqv": False,
+        "op_offload": False,
+        "flash_attn": False,
+        "use_mmap": True,
+        "verbose": False,
+    }
+    if config.threads > 0:
+        llama_options["n_threads"] = config.threads
+        llama_options["n_threads_batch"] = config.threads
+
     try:
         return Llama(
-            model_path=str(checkpoint),
-            embedding=True,
-            n_gpu_layers=0,
-            n_ctx=config.context_size,
-            n_batch=config.context_size,
-            # Un encodeur bidirectionnel ne peut pas découper une séquence en
-            # micro-lots : llama.cpp exige n_ubatch >= nombre de tokens.
-            n_ubatch=config.batch_size,
-            n_threads=config.threads,
-            n_threads_batch=config.threads,
-            offload_kqv=False,
-            op_offload=False,
-            flash_attn=False,
-            use_mmap=True,
-            verbose=False,
+            **llama_options,
         )
     except Exception as exc:
         raise ModelLoadError(

@@ -30,7 +30,7 @@ text_embedding:
   dimensions: 1024
   context_size: 4096
   batch_size: 4096
-  threads: 2
+  threads: 0
 outputs_dir: ./outputs
 identity_cache_dir: ./cache/identity
 device:
@@ -68,7 +68,7 @@ def test_load_config_resolves_model_paths_from_models_root(
     assert config.text_embedding.dimensions == 1024
     assert config.text_embedding.context_size == 4096
     assert config.text_embedding.batch_size == 4096
-    assert config.text_embedding.threads == 2
+    assert config.text_embedding.threads == 0
     assert config.device.offload_strategy == "model_cpu_offload"
 
 
@@ -98,8 +98,8 @@ def test_text_embedding_limits_are_validated(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, tmp_path / "models")
     content = config_path.read_text(encoding="utf-8").replace(
-        "threads: 2",
         "threads: 0",
+        "threads: -1",
     )
     config_path.write_text(content, encoding="utf-8")
 

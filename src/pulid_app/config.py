@@ -59,7 +59,8 @@ class TextEmbeddingConfig:
     dimensions: int = 1024
     context_size: int = 8192
     batch_size: int = 8192
-    threads: int = 4
+    # 0 laisse llama-cpp-python choisir selon les CPU logiques disponibles.
+    threads: int = 0
 
     def __post_init__(self) -> None:
         if self.batch_size < self.context_size:
@@ -248,9 +249,9 @@ def load_config(path: str | Path | None = None) -> AppConfig:
                     text_embedding,
                     "threads",
                     context="text_embedding",
-                    default=4,
-                    minimum=1,
-                    maximum=64,
+                    default=0,
+                    minimum=0,
+                    maximum=1024,
                 ),
             )
             if text_embedding is not None
