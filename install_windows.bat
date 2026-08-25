@@ -19,7 +19,7 @@ if not exist "%PULID_MODELS_ROOT%\" (
     echo [ERREUR] Dossier de modeles introuvable :
     echo   %PULID_MODELS_ROOT%
     echo Copiez le dossier PuLID_models a la racine du projet, puis relancez ce script.
-    exit /b 1
+    goto :error_exit
 )
 
 echo Nettoyage des metadonnees macOS incompatibles avec Windows...
@@ -27,14 +27,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$files = @(Get-Child
 if errorlevel 1 (
     echo [ERREUR] Impossible de supprimer les fichiers AppleDouble sous :
     echo   %PULID_MODELS_ROOT%
-    exit /b 1
+    goto :error_exit
 )
 
 if not exist "%PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors" (
     echo [ERREUR] Checkpoint SDXL par defaut introuvable :
     echo   %PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors
     echo Verifiez que le dossier PuLID_models a ete copie integralement.
-    exit /b 1
+    goto :error_exit
 )
 
 set "UV_EXE="
@@ -48,14 +48,14 @@ if not defined UV_EXE (
         echo [ERREUR] Impossible d'installer uv.
         echo Installez-le manuellement puis relancez ce script :
         echo   winget install --id=astral-sh.uv -e
-        exit /b 1
+        goto :error_exit
     )
     set "UV_EXE=%LOCALAPPDATA%\PuLID\uv\bin\uv.exe"
 )
 
 if not exist "%UV_EXE%" (
     echo [ERREUR] Executable uv introuvable : %UV_EXE%
-    exit /b 1
+    goto :error_exit
 )
 
 set "VENV_PYTHON=%PROJECT_DIR%.venv\Scripts\python.exe"
@@ -102,20 +102,26 @@ exit /b 0
 
 :venv_error
 echo [ERREUR] Impossible de creer l'environnement Python 3.11.
-exit /b 1
+goto :error_exit
 
 :dependency_error
 echo [ERREUR] Installation des dependances impossible.
 echo Si l'erreur concerne InsightFace, installez Microsoft C++ Build Tools
 echo avec la charge de travail "Desktop development with C++", puis relancez ce script.
-exit /b 1
+goto :error_exit
 
 :cuda_error
 echo [ERREUR] PyTorch ne detecte pas la carte NVIDIA.
 echo Installez le dernier pilote NVIDIA compatible puis relancez ce script.
-exit /b 1
+goto :error_exit
 
 :validation_error
 echo [ERREUR] L'installation ou le dossier PuLID_models est incomplet.
 echo Consultez les erreurs affichees ci-dessus, corrigez-les puis relancez ce script.
+goto :error_exit
+
+:error_exit
+echo.
+echo Appuyez sur une touche pour fermer cette fenetre.
+pause >nul
 exit /b 1
