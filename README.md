@@ -25,7 +25,25 @@ externe ne doit être configuré ou chargé.
 
 ## 2. Création de l'environnement
 
-Depuis la racine du projet :
+Sur macOS, la méthode recommandée crée `.venv` s'il est absent et met à jour un
+environnement existant avec tous les extras, dont le serveur et le runtime GGUF :
+
+```bash
+./install_macos.sh
+```
+
+Le script ne télécharge aucun modèle. Il exige le GGUF local sous
+`text_embedding/bge-m3-Q8_0.gguf`, force les caches Python et ML sous
+`PULID_MODELS_ROOT`, puis vérifie PyTorch/MPS, `llama-cpp-python` et la
+configuration du modèle. Il peut être relancé après chaque `git pull` ; les
+dépendances déjà compatibles sont réutilisées.
+
+L'installateur essaie d'abord la wheel macOS arm64 précompilée. Si cette archive
+n'est pas exploitable, il compile automatiquement `llama-cpp-python` en mode CPU
+avec Accelerate et `GGML_METAL=OFF` ; les outils de ligne de commande Xcode sont
+alors requis.
+
+Pour créer l'environnement manuellement depuis la racine du projet :
 
 ```bash
 uv venv --python 3.11
@@ -37,10 +55,11 @@ source .venv/bin/activate
 
 ## 3. Installation
 
-L'installation complète pour l'inférence et le développement est :
+L'installation manuelle complète pour l'inférence, le serveur, les embeddings
+et le développement est :
 
 ```bash
-uv pip install -e '.[inference,pulid,dev]'
+uv pip install -e '.[inference,pulid,server,embeddings,dev]'
 ```
 
 Vérifier ensuite l'installation et la configuration sans charger les poids :
@@ -84,6 +103,8 @@ Les fichiers lourds restent sous `models_root`, jamais dans le dépôt :
 │   ├── eva_clip/
 │   └── pulid/
 ├── facexlib/weights/
+├── text_embedding/
+│   └── bge-m3-Q8_0.gguf
 ├── huggingface/
 ├── torch/
 └── other/
@@ -117,6 +138,14 @@ device:
   preferred: mps
   dtype: float16
   offload_strategy: none
+
+text_embedding:
+  checkpoint: text_embedding/bge-m3-Q8_0.gguf
+  model_id: text-embedding-bge-m3
+  dimensions: 1024
+  context_size: 8192
+  batch_size: 8192
+  threads: 4
 ```
 
 Un monofichier SDXL ne contient pas les JSON et tokenizers attendus par
@@ -322,12 +351,13 @@ PULID_RUN_SLOW=1 pytest -m 'integration and slow'
 
 ## Serveur HTTP pour frontend
 
-Le serveur local expose `GET /models` et `POST /generate`. La génération HTTP
-renvoie directement un PNG, n'écrit ni output ni JSON, et crée ou réutilise le
-petit cache ArcFace sous `cache/identity/` :
+Le serveur local expose les routes SDXL `GET /models` et `POST /generate`, ainsi
+que les routes OpenAI compatibles `GET /v1/models` et `POST /v1/embeddings`.
+La génération HTTP renvoie directement un PNG, n'écrit ni output ni JSON, et
+crée ou réutilise le petit cache ArcFace sous `cache/identity/` :
 
 ```bash
-uv pip install -e '.[inference,pulid,server]'
+uv pip install -e '.[inference,pulid,server,embeddings]'
 pulid-server --device mps --cors-origin http://localhost:3000
 ```
 
@@ -336,8 +366,20 @@ utilisant le même checkpoint. Il est déchargé lorsqu'une requête sélectionn
 autre modèle ou lorsque le serveur s'arrête. MPS et CPU conservent le nettoyage
 après chaque génération.
 
+Le GGUF BGE-M3 est chargé paresseusement en RAM et forcé sur CPU avec
+`n_gpu_layers=0`. Un lot d'embeddings peut donc être calculé pendant une
+génération SDXL sans prendre de VRAM à la carte graphique. Les lots d'embeddings
+sont sérialisés entre eux.
+
+Sous Windows, `install_windows.bat` installe ou met à jour la wheel CPU de
+`llama-cpp-python`, réinstalle le projet avec l'extra `embeddings`, puis vérifie
+le runtime et la présence de
+`PuLID_models\text_embedding\bge-m3-Q8_0.gguf`.
+
 Le contrat complet, les champs multipart, headers de réponse et exemples
 TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
+La bascule de `rp-bot` depuis LM Studio est détaillée dans
+[`RP_BOT_TEXT_EMBEDDING_INTEGRATION.md`](RP_BOT_TEXT_EMBEDDING_INTEGRATION.md).
 
 ## 11. Dépannage
 
@@ -353,6 +395,7 @@ Les erreurs CLI affichent leur type et une correction probable :
 | `UnsupportedDeviceError` | backend ou offload incompatible | Choisir `mps`, `cuda` ou `cpu`; réserver l'offload à CUDA |
 | `ModelLoadError` | dépendance, provider, poids ou mémoire | Lancer `doctor`, vérifier les versions et réduire la charge mémoire |
 | `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
+| `EmbeddingError` | réponse ou calcul GGUF invalide | Vérifier le GGUF, `llama-cpp-python`, la longueur du texte et relancer |
 
 Contrôles utiles :
 

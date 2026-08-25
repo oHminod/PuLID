@@ -21,6 +21,16 @@ insightface:
   model_root: .
   model_name: antelopev2
 
+text_embedding:
+  checkpoint: text_embedding/bge-m3-Q8_0.gguf
+  model_id: text-embedding-bge-m3
+  dimensions: 1024
+  # Le GGUF reste volontairement sur CPU afin de réserver la VRAM à SDXL.
+  context_size: 8192
+  # Un encodeur bidirectionnel exige batch_size >= context_size dans llama.cpp.
+  batch_size: 8192
+  threads: 4
+
 outputs_dir: ./outputs
 identity_cache_dir: ./cache/identity
 

@@ -53,6 +53,25 @@ class DeviceConfig:
 
 
 @dataclass(frozen=True)
+class TextEmbeddingConfig:
+    checkpoint: Path
+    model_id: str = "text-embedding-bge-m3"
+    dimensions: int = 1024
+    context_size: int = 8192
+    batch_size: int = 8192
+    threads: int = 4
+
+    def __post_init__(self) -> None:
+        if self.batch_size < self.context_size:
+            raise ConfigError(
+                "La clé 'text_embedding.batch_size' doit être supérieure ou égale "
+                "à 'text_embedding.context_size' pour un modèle d'embedding "
+                "encodeur. Sinon llama.cpp interrompt nativement le processus sur "
+                "les séquences longues."
+            )
+
+
+@dataclass(frozen=True)
 class AppConfig:
     models_root: Path
     sdxl: SDXLConfig
@@ -62,6 +81,7 @@ class AppConfig:
     identity_cache_dir: Path
     device: DeviceConfig
     source_path: Path
+    text_embedding: TextEmbeddingConfig | None = None
 
 
 def _require_mapping(value: Any, key: str) -> Mapping[str, Any]:
@@ -89,6 +109,26 @@ def _model_path(path: str, models_root: Path) -> Path:
     return _absolute(path, models_root)
 
 
+def _bounded_integer(
+    mapping: Mapping[str, Any],
+    key: str,
+    *,
+    context: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = mapping.get(key, default)
+    qualified = f"{context}.{key}"
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"La clé '{qualified}' doit contenir un entier.")
+    if not minimum <= value <= maximum:
+        raise ConfigError(
+            f"La clé '{qualified}' doit être comprise entre {minimum} et {maximum}."
+        )
+    return value
+
+
 def load_config(path: str | Path | None = None) -> AppConfig:
     """Charge la configuration et résout tous les chemins de façon déterministe."""
 
@@ -112,6 +152,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     pulid = _require_mapping(root.get("pulid"), "pulid")
     insightface = _require_mapping(root.get("insightface"), "insightface")
     device = _require_mapping(root.get("device", {}), "device")
+    raw_text_embedding = root.get("text_embedding")
+    text_embedding = (
+        None
+        if raw_text_embedding is None
+        else _require_mapping(raw_text_embedding, "text_embedding")
+    )
 
     outputs_dir = _absolute(_require_text(root, "outputs_dir"), PROJECT_ROOT)
     identity_cache_dir = _absolute(
@@ -167,4 +213,47 @@ def load_config(path: str | Path | None = None) -> AppConfig:
             offload_strategy=str(device.get("offload_strategy", "none")),
         ),
         source_path=source_path,
+        text_embedding=(
+            TextEmbeddingConfig(
+                checkpoint=_model_path(
+                    _require_text(text_embedding, "checkpoint", "text_embedding"),
+                    models_root,
+                ),
+                model_id=_require_text(text_embedding, "model_id", "text_embedding"),
+                dimensions=_bounded_integer(
+                    text_embedding,
+                    "dimensions",
+                    context="text_embedding",
+                    default=1024,
+                    minimum=1,
+                    maximum=32768,
+                ),
+                context_size=_bounded_integer(
+                    text_embedding,
+                    "context_size",
+                    context="text_embedding",
+                    default=8192,
+                    minimum=128,
+                    maximum=131072,
+                ),
+                batch_size=_bounded_integer(
+                    text_embedding,
+                    "batch_size",
+                    context="text_embedding",
+                    default=8192,
+                    minimum=1,
+                    maximum=131072,
+                ),
+                threads=_bounded_integer(
+                    text_embedding,
+                    "threads",
+                    context="text_embedding",
+                    default=4,
+                    minimum=1,
+                    maximum=64,
+                ),
+            )
+            if text_embedding is not None
+            else None
+        ),
     )

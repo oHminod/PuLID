@@ -52,6 +52,10 @@ class GenerationError(PuLIDAppError):
     """La génération ou l'une de ses étapes d'orchestration a échoué."""
 
 
+class EmbeddingError(PuLIDAppError):
+    """Le calcul d'un embedding de texte a échoué."""
+
+
 class PromptTooLongError(PuLIDAppError, ValueError):
     """Un prompt dépasse la fenêtre longue explicitement prise en charge."""
 
@@ -83,6 +87,7 @@ ACTIONABLE_ERROR_TYPES = (
     ModelLoadError,
     PromptTooLongError,
     GenerationError,
+    EmbeddingError,
 )
 
 

@@ -14,6 +14,7 @@ from pulid_app.config import (
     InsightFaceConfig,
     PuLIDConfig,
     SDXLConfig,
+    TextEmbeddingConfig,
 )
 from pulid_app.doctor import (
     FACEXLIB_REQUIRED_FILES,
@@ -73,6 +74,10 @@ def _ready_config(tmp_path: Path) -> AppConfig:
     eva.parent.mkdir(parents=True)
     eva.touch()
 
+    text_embedding = models / "text_embedding" / "bge-m3-Q8_0.gguf"
+    text_embedding.parent.mkdir()
+    text_embedding.touch()
+
     return AppConfig(
         models_root=models,
         sdxl=SDXLConfig(sdxl_checkpoint, sdxl_config),
@@ -87,6 +92,7 @@ def _ready_config(tmp_path: Path) -> AppConfig:
         identity_cache_dir=tmp_path / "cache" / "identity",
         device=DeviceConfig(),
         source_path=tmp_path / "config.yaml",
+        text_embedding=TextEmbeddingConfig(text_embedding),
     )
 
 
@@ -111,6 +117,7 @@ def test_doctor_reports_ready_environment(tmp_path: Path) -> None:
         "Caches externes",
         "Checkpoint SDXL",
         "Checkpoint PuLID",
+        "Modèle embedding GGUF",
         "AntelopeV2",
         "Configuration SDXL",
         "Runtime PuLID",
@@ -119,6 +126,7 @@ def test_doctor_reports_ready_environment(tmp_path: Path) -> None:
         "Dossier outputs",
         "Accélérateur",
         "Version torch",
+        "Version llama-cpp-python",
     }
 
     output = StringIO()

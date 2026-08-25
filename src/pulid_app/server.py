@@ -13,17 +13,19 @@ from pathlib import Path
 import secrets
 import unicodedata
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pydantic import BaseModel, Field
 
 from pulid_app import __version__
 from pulid_app.config import AppConfig, load_config
 from pulid_app.exceptions import (
     FaceNotDetectedError,
+    ModelLoadError,
     ModelNotFoundError,
     MultipleFacesDetectedError,
     PuLIDAppError,
@@ -31,6 +33,10 @@ from pulid_app.exceptions import (
     actionable_error,
 )
 from pulid_app.models.identity_encoder import SUPPORTED_IMAGE_FORMATS
+from pulid_app.models.text_embedding import (
+    TextEmbeddingService,
+    load_llama_cpp_embedding_model,
+)
 from pulid_app.models.sdxl import (
     NORMAL_SIGMA_SCHEDULE,
     SAMPLING_METHOD_SPECS,
@@ -67,6 +73,14 @@ class GeneratedPayload:
     model: str
     method: str
     sigmas: str
+
+
+class OpenAIEmbeddingRequest(BaseModel):
+    """Sous-ensemble textuel de la requête OpenAI compatible."""
+
+    model: str = Field(min_length=1, max_length=255)
+    input: str | list[str]
+    encoding_format: Literal["float"] = "float"
 
 
 def list_sdxl_models(config: AppConfig) -> list[dict[str, Any]]:
@@ -435,6 +449,20 @@ def _http_error(exc: BaseException) -> HTTPException:
     )
 
 
+def _embedding_http_error(exc: BaseException) -> HTTPException:
+    label, cause = actionable_error(exc)
+    if isinstance(cause, (ModelNotFoundError, ModelLoadError)):
+        status_code = 503
+    elif isinstance(cause, ValueError):
+        status_code = 422
+    else:
+        status_code = 500
+    return HTTPException(
+        status_code=status_code,
+        detail={"error": label, "message": str(cause)},
+    )
+
+
 def create_app(
     config_path: str | Path | None = None,
     *,
@@ -442,6 +470,7 @@ def create_app(
     dtype_name: str | None = None,
     offload_strategy: str | None = None,
     generator_factory: Callable[..., Any] = ImageGenerator,
+    embedding_model_factory: Callable[..., Any] = load_llama_cpp_embedding_model,
     now_factory: Callable[[], datetime] | None = None,
     random_seed: Callable[[], int] | None = None,
     cors_origins: Sequence[str] = (),
@@ -460,13 +489,23 @@ def create_app(
         now_factory=now_factory,
         random_seed=random_seed,
     )
+    embedding_service = TextEmbeddingService(
+        config.text_embedding,
+        model_factory=embedding_model_factory,
+    )
+
+    def close_services() -> None:
+        try:
+            service.close()
+        finally:
+            embedding_service.close()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             yield
         finally:
-            await run_in_threadpool(service.close)
+            await run_in_threadpool(close_services)
 
     app = FastAPI(
         title="PuLID API",
@@ -477,6 +516,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.generation_service = service
+    app.state.text_embedding_service = embedding_service
     if cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -493,6 +533,7 @@ def create_app(
             ],
         )
     generation_lock = asyncio.Lock()
+    embedding_lock = asyncio.Lock()
 
     @app.get("/models")
     async def models() -> dict[str, Any]:
@@ -504,6 +545,28 @@ def create_app(
             }
         except PuLIDAppError as exc:
             raise _http_error(exc) from exc
+
+    @app.get("/v1/models")
+    async def embedding_models() -> dict[str, Any]:
+        try:
+            return {
+                "object": "list",
+                "data": embedding_service.list_models(),
+            }
+        except (PuLIDAppError, OSError, ValueError) as exc:
+            raise _embedding_http_error(exc) from exc
+
+    @app.post("/v1/embeddings")
+    async def create_embeddings(request: OpenAIEmbeddingRequest) -> dict[str, Any]:
+        try:
+            async with embedding_lock:
+                return await run_in_threadpool(
+                    embedding_service.create_embedding,
+                    model=request.model,
+                    input_value=request.input,
+                )
+        except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
+            raise _embedding_http_error(exc) from exc
 
     @app.post("/generate", response_class=Response)
     async def generate(

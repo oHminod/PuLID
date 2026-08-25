@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import httpx
@@ -24,6 +25,9 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path]:
     checkpoints.mkdir(parents=True)
     (checkpoints / "realvisxl.safetensors").touch()
     (checkpoints / "reaxl_v30.safetensors").touch()
+    text_embedding = models / "text_embedding" / "bge-m3-Q8_0.gguf"
+    text_embedding.parent.mkdir()
+    text_embedding.touch()
     config = tmp_path / "config.yaml"
     config.write_text(
         f"""
@@ -36,6 +40,13 @@ pulid:
 insightface:
   model_root: .
   model_name: antelopev2
+text_embedding:
+  checkpoint: text_embedding/bge-m3-Q8_0.gguf
+  model_id: text-embedding-bge-m3
+  dimensions: 2
+  context_size: 8192
+  batch_size: 8192
+  threads: 2
 outputs_dir: {tmp_path / 'outputs'}
 identity_cache_dir: {tmp_path / 'cache' / 'identity'}
 device:
@@ -80,6 +91,35 @@ class FakeMemoryGenerator:
         self.closed = True
 
 
+class FakeEmbeddingModel:
+    instances: list["FakeEmbeddingModel"] = []
+
+    def __init__(self, config) -> None:
+        self.config = config
+        self.calls = []
+        self.closed = False
+        self.__class__.instances.append(self)
+
+    def create_embedding(self, inputs):
+        self.calls.append(inputs)
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "object": "embedding",
+                    "index": index,
+                    "embedding": [3.0, 4.0],
+                }
+                for index, _text in enumerate(inputs)
+            ],
+            "model": str(self.config.checkpoint),
+            "usage": {"prompt_tokens": len(inputs), "total_tokens": len(inputs)},
+        }
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def _app(
     tmp_path: Path,
     *,
@@ -88,10 +128,12 @@ def _app(
 ):
     config, _models = _write_config(tmp_path)
     FakeMemoryGenerator.instances.clear()
+    FakeEmbeddingModel.instances.clear()
     return create_app(
         config,
         device=device,
         generator_factory=FakeMemoryGenerator,
+        embedding_model_factory=FakeEmbeddingModel,
         now_factory=lambda: datetime(2026, 8, 13, 20, 9, 47, 123456, tzinfo=timezone.utc),
         random_seed=lambda: 987654321,
         cors_origins=cors_origins,
@@ -288,6 +330,185 @@ def test_models_endpoint_lists_sampling_methods_and_sigmas_separately(
             },
         ],
     }
+
+
+def test_openai_models_endpoint_lists_configured_embedding(tmp_path: Path) -> None:
+    response = _request(_app(tmp_path), "GET", "/v1/models")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "object": "list",
+        "data": [
+            {
+                "id": "text-embedding-bge-m3",
+                "object": "model",
+                "created": 0,
+                "owned_by": "pulid-local",
+            }
+        ],
+    }
+    assert FakeEmbeddingModel.instances == []
+
+
+def test_openai_embeddings_endpoint_is_lazy_reused_and_normalized(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+
+    first = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+    )
+    second = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={
+            "model": "text-embedding-bge-m3",
+            "input": ["bonjour", "au revoir"],
+        },
+    )
+
+    assert first.status_code == 200
+    assert first.json() == {
+        "object": "list",
+        "data": [
+            {
+                "object": "embedding",
+                "index": 0,
+                "embedding": [0.6, 0.8],
+            }
+        ],
+        "model": "text-embedding-bge-m3",
+        "usage": {"prompt_tokens": 1, "total_tokens": 1},
+    }
+    assert second.status_code == 200
+    assert len(second.json()["data"]) == 2
+    assert len(FakeEmbeddingModel.instances) == 1
+    engine = FakeEmbeddingModel.instances[0]
+    assert engine.config.checkpoint == (
+        tmp_path / "models" / "text_embedding" / "bge-m3-Q8_0.gguf"
+    )
+    assert engine.calls == [["bonjour"], ["bonjour", "au revoir"]]
+
+
+def test_openai_embeddings_rejects_unknown_model_without_loading_gguf(
+    tmp_path: Path,
+) -> None:
+    response = _request(
+        _app(tmp_path),
+        "POST",
+        "/v1/embeddings",
+        json={"model": "unknown", "input": "bonjour"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "ValueError"
+    assert FakeEmbeddingModel.instances == []
+
+
+def test_openai_embeddings_reports_missing_gguf_as_unavailable(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    (tmp_path / "models" / "text_embedding" / "bge-m3-Q8_0.gguf").unlink()
+
+    response = _request(app, "GET", "/v1/models")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "ModelNotFoundError"
+    assert "bge-m3-Q8_0.gguf" in response.json()["detail"]["message"]
+    assert FakeEmbeddingModel.instances == []
+
+
+def test_embedding_model_is_closed_on_app_shutdown(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+
+    async def run_with_lifespan() -> FakeEmbeddingModel:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    "/v1/embeddings",
+                    json={
+                        "model": "text-embedding-bge-m3",
+                        "input": "bonjour",
+                    },
+                )
+            assert response.status_code == 200
+            engine = FakeEmbeddingModel.instances[0]
+            assert engine.closed is False
+            return engine
+
+    engine = asyncio.run(run_with_lifespan())
+
+    assert engine.closed is True
+
+
+def test_cpu_embedding_can_run_during_sdxl_generation(tmp_path: Path) -> None:
+    generation_started = threading.Event()
+    embedding_started = threading.Event()
+
+    class ConcurrentGenerator(FakeMemoryGenerator):
+        def generate_in_memory(self, **kwargs):
+            generation_started.set()
+            if not embedding_started.wait(timeout=2):
+                raise RuntimeError("L'embedding n'a pas démarré en parallèle.")
+            return super().generate_in_memory(**kwargs)
+
+    class ConcurrentEmbeddingModel(FakeEmbeddingModel):
+        def create_embedding(self, inputs):
+            if not generation_started.wait(timeout=2):
+                raise RuntimeError("La génération SDXL n'a pas démarré.")
+            embedding_started.set()
+            return super().create_embedding(inputs)
+
+    config, _models = _write_config(tmp_path)
+    ConcurrentGenerator.instances.clear()
+    ConcurrentEmbeddingModel.instances.clear()
+    app = create_app(
+        config,
+        generator_factory=ConcurrentGenerator,
+        embedding_model_factory=ConcurrentEmbeddingModel,
+    )
+
+    async def send_concurrently():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            generation = asyncio.create_task(
+                client.post(
+                    "/generate",
+                    files={
+                        "reference": ("noemie.png", _image_bytes(), "image/png")
+                    },
+                    data={
+                        "character": "noemie",
+                        "prompt": "portrait",
+                        "model": "realvisxl",
+                    },
+                )
+            )
+            embedding = asyncio.create_task(
+                client.post(
+                    "/v1/embeddings",
+                    json={
+                        "model": "text-embedding-bge-m3",
+                        "input": "bonjour",
+                    },
+                )
+            )
+            return await asyncio.gather(generation, embedding)
+
+    generation_response, embedding_response = asyncio.run(send_concurrently())
+
+    assert generation_response.status_code == 200
+    assert embedding_response.status_code == 200
 
 
 def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path) -> None:

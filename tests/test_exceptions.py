@@ -7,6 +7,7 @@ from rich.console import Console
 
 from pulid_app.cli import build_parser, run_generate
 from pulid_app.exceptions import (
+    EmbeddingError,
     ExternalDriveNotMountedError,
     FaceNotDetectedError,
     GenerationError,
@@ -50,6 +51,7 @@ def test_public_error_types_are_instantiable() -> None:
         UnsupportedDeviceError("device inconnu"),
         ModelLoadError("chargement impossible"),
         GenerationError("génération impossible"),
+        EmbeddingError("embedding impossible"),
     )
 
     assert all(isinstance(error, RuntimeError) for error in errors)

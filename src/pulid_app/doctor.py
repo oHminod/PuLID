@@ -194,6 +194,13 @@ def build_doctor_report(
 
     checks.append(_readable_file_check("Checkpoint SDXL", config.sdxl.checkpoint))
     checks.append(_readable_file_check("Checkpoint PuLID", config.pulid.checkpoint))
+    if config.text_embedding is not None:
+        checks.append(
+            _readable_file_check(
+                "Modèle embedding GGUF",
+                config.text_embedding.checkpoint,
+            )
+        )
     antelope_paths = tuple(
         config.insightface.model_dir / name
         for name in sorted(ANTELOPEV2_REQUIRED_FILES)
@@ -292,7 +299,10 @@ def build_doctor_report(
         )
 
     resolver = version_resolver or metadata.version
-    for distribution in CRITICAL_DISTRIBUTIONS:
+    distributions = list(CRITICAL_DISTRIBUTIONS)
+    if config.text_embedding is not None:
+        distributions.append("llama-cpp-python")
+    for distribution in distributions:
         try:
             version = resolver(distribution)
         except metadata.PackageNotFoundError:
@@ -300,7 +310,8 @@ def build_doctor_report(
                 DoctorCheck(
                     f"Version {distribution}",
                     "error",
-                    "Dépendance absente ; réinstallez les extras inference,pulid.",
+                    "Dépendance absente ; réinstallez les extras "
+                    "inference,pulid,server,embeddings.",
                 )
             )
         else:

@@ -26,6 +26,7 @@ PuLID_models/
 *.pth
 *.onnx
 *.bin
+*.gguf
 
 # Artefacts locaux
 outputs/*

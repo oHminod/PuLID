@@ -1,10 +1,12 @@
 # API PuLID — intégration frontend
 
-Ce serveur HTTP local expose exactement deux routes applicatives :
+Ce serveur HTTP local expose quatre routes applicatives :
 
 - `GET /models` liste séparément les checkpoints SDXL, les méthodes de sampling
   et les courbes de sigmas compatibles ;
 - `POST /generate` génère une image et renvoie directement le PNG.
+- `GET /v1/models` expose le modèle d'embedding de texte local au format OpenAI ;
+- `POST /v1/embeddings` calcule un ou plusieurs embeddings au format OpenAI.
 
 La génération HTTP est séparée du chemin CLI avec sauvegarde. Elle ne crée ni
 image dans `outputs/`, ni manifeste JSON. L'image de référence, le
@@ -13,12 +15,16 @@ ArcFace est créé ou réutilisé sous `cache/identity/`, avec une clé dérivé
 pixels décodés et du nom du personnage. Le frontend reste responsable du
 téléchargement ou du stockage du PNG reçu.
 
+Le modèle GGUF de texte est chargé paresseusement depuis `models_root` et reste
+en mémoire RAM après le premier appel. Il est forcé sur CPU et ne consomme
+aucune VRAM. Les embeddings ne créent aucun fichier dans le projet.
+
 ## Démarrage du serveur
 
 Installer les dépendances du serveur avec celles de l'inférence :
 
 ```bash
-uv pip install -e '.[inference,pulid,server]'
+uv pip install -e '.[inference,pulid,server,embeddings]'
 ```
 
 Démarrer sur l'interface locale :
@@ -46,6 +52,111 @@ URL de base utilisée dans les exemples :
 ```text
 http://127.0.0.1:12693
 ```
+
+## Embeddings de texte OpenAI compatibles
+
+Le modèle est configuré avec un chemin relatif à `models_root`, portable entre
+le SSD macOS et le dossier `PuLID_models` placé à la racine du projet Windows :
+
+```yaml
+text_embedding:
+  checkpoint: text_embedding/bge-m3-Q8_0.gguf
+  model_id: text-embedding-bge-m3
+  dimensions: 1024
+  context_size: 8192
+  batch_size: 8192
+  threads: 4
+```
+
+`n_gpu_layers` est fixé à `0`, `offload_kqv` à `false` et `op_offload` à
+`false` dans le code ; ces valeurs ne peuvent pas être modifiées par une requête
+HTTP. BGE-M3 étant un encodeur bidirectionnel, `batch_size` doit être supérieur
+ou égal à `context_size` : llama.cpp ne peut pas découper une séquence
+d'embedding en micro-lots indépendants. La configuration est refusée au
+démarrage si cette contrainte n'est pas respectée, au lieu de laisser
+llama.cpp interrompre nativement Python sur une entrée longue. Le nombre réduit
+de threads limite la pression CPU pendant une génération SDXL.
+
+### Lister le modèle d'embedding
+
+```http
+GET /v1/models
+```
+
+```bash
+curl http://127.0.0.1:12693/v1/models
+```
+
+Réponse `200 application/json` :
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "text-embedding-bge-m3",
+      "object": "model",
+      "created": 0,
+      "owned_by": "pulid-local"
+    }
+  ]
+}
+```
+
+Cette route vérifie la présence du GGUF sans le charger. Un fichier absent est
+signalé en `503` avec son chemin résolu.
+
+### Calculer des embeddings
+
+```http
+POST /v1/embeddings
+Content-Type: application/json
+```
+
+Corps pour un texte :
+
+```json
+{
+  "model": "text-embedding-bge-m3",
+  "input": "Un souvenir important du personnage."
+}
+```
+
+Le champ `input` accepte également un tableau de chaînes. `encoding_format`
+peut être omis ou valoir `float`; le format Base64 n'est pas pris en charge.
+
+```bash
+curl --fail-with-body http://127.0.0.1:12693/v1/embeddings \
+  --header "Content-Type: application/json" \
+  --data '{"model":"text-embedding-bge-m3","input":["bonjour","au revoir"]}'
+```
+
+Réponse `200 application/json` — vecteur volontairement abrégé dans l'exemple :
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "index": 0,
+      "embedding": [0.0123, -0.0456, 0.0789]
+    }
+  ],
+  "model": "text-embedding-bge-m3",
+  "usage": {
+    "prompt_tokens": 8,
+    "total_tokens": 8
+  }
+}
+```
+
+Les vecteurs BGE-M3 comportent 1024 composantes. Le backend vérifie leur
+dimension et leurs valeurs puis applique une normalisation L2. Les limites HTTP sont de 64 textes,
+32 000 caractères par texte et 128 000 caractères cumulés par requête. Un texte
+vide ou un identifiant de modèle différent est refusé en `422`.
+Un texte dépassant les 8192 jetons configurés est également refusé avant le
+calcul ; il n'est jamais tronqué silencieusement.
 
 ## 1. Lister les modèles, méthodes et sigmas
 
@@ -426,6 +537,9 @@ Statuts usuels :
   dépassant 255 jetons CLIP utiles,
   modèle/méthode/sigmas inconnus, combinaison
   méthode-sigmas incompatible, image illisible, aucun visage ou plusieurs visages ;
+- `422` sur `/v1/embeddings` : modèle inconnu, entrée vide, lot ou texte trop grand ;
+- `503` sur les routes `/v1` : GGUF local absent ou runtime
+  `llama-cpp-python` indisponible ;
 - `500` : échec de chargement d'un modèle ou erreur pendant l'inférence.
 
 Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
@@ -434,6 +548,8 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 
 - une seule génération est exécutée à la fois ; une requête concurrente attend
   la fin de la précédente afin de protéger la mémoire MPS/CUDA ;
+- un seul lot d'embeddings est calculé à la fois ;
+- un embedding CPU peut être calculé en parallèle d'une génération SDXL ;
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
 - l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
@@ -442,6 +558,8 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
   autre modèle ferme d'abord le générateur précédent afin de libérer sa VRAM ;
 - sur MPS et CPU, les composants du pipeline sont fermés après chaque réponse ;
 - le générateur CUDA encore actif est fermé à l'arrêt du serveur ;
+- le modèle GGUF est chargé au premier `POST /v1/embeddings`, conservé en RAM
+  puis fermé à l'arrêt du serveur ;
 - aucun PNG ni manifeste JSON n'est créé par l'application serveur.
 
 Une génération peut prendre plusieurs dizaines de secondes. Le proxy ou le

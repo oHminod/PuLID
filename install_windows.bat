@@ -37,6 +37,13 @@ if not exist "%PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.
     goto :error_exit
 )
 
+if not exist "%PULID_MODELS_ROOT%\text_embedding\bge-m3-Q8_0.gguf" (
+    echo [ERREUR] Modele d'embedding GGUF introuvable :
+    echo   %PULID_MODELS_ROOT%\text_embedding\bge-m3-Q8_0.gguf
+    echo Creez le dossier text_embedding sous PuLID_models et placez-y le GGUF.
+    goto :error_exit
+)
+
 set "UV_EXE="
 for /f "delims=" %%I in ('where uv.exe 2^>nul') do if not defined UV_EXE set "UV_EXE=%%I"
 
@@ -69,13 +76,21 @@ echo Installation de PyTorch 2.13 avec CUDA 13.0...
 "%UV_EXE%" pip install --python "%VENV_PYTHON%" "torch==2.13.0" "torchvision==0.28.0" --index-url "https://download.pytorch.org/whl/cu130"
 if errorlevel 1 goto :dependency_error
 
+echo Installation du runtime GGUF CPU pour les embeddings...
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/cpu" --only-binary llama-cpp-python "llama-cpp-python>=0.3.16,<0.4"
+if errorlevel 1 goto :dependency_error
+
 echo Installation de PuLID et du serveur HTTP...
-"%UV_EXE%" pip install --python "%VENV_PYTHON%" -e ".[inference,pulid,server,dev]"
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/cpu" --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
 if errorlevel 1 goto :dependency_error
 
 echo Verification de CUDA...
 "%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available(), 'CUDA indisponible : mettez a jour le pilote NVIDIA'; print('CUDA OK :', torch.cuda.get_device_name(0), '- PyTorch', torch.__version__)"
 if errorlevel 1 goto :cuda_error
+
+echo Verification du runtime GGUF CPU...
+"%VENV_PYTHON%" -c "import llama_cpp; print('llama-cpp-python OK :', llama_cpp.__version__)"
+if errorlevel 1 goto :dependency_error
 
 echo Verification de l'installation et des modeles...
 "%PROJECT_DIR%.venv\Scripts\pulid-gen.exe" doctor
@@ -108,6 +123,7 @@ goto :error_exit
 echo [ERREUR] Installation des dependances impossible.
 echo Si l'erreur concerne InsightFace, installez Microsoft C++ Build Tools
 echo avec la charge de travail "Desktop development with C++", puis relancez ce script.
+echo Le runtime GGUF doit provenir de la wheel CPU precompilee indiquee par le script.
 goto :error_exit
 
 :cuda_error

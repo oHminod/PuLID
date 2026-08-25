@@ -42,6 +42,9 @@ server = [
   "python-multipart>=0.0.20,<1",
   "uvicorn>=0.34,<1",
 ]
+embeddings = [
+  "llama-cpp-python>=0.3.16,<0.4",
+]
 dev = [
   "httpx>=0.28,<1",
   "pytest>=8.3,<10",

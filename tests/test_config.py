@@ -24,6 +24,13 @@ pulid:
 insightface:
   model_root: insightface
   model_name: antelopev2
+text_embedding:
+  checkpoint: text_embedding/bge-m3-Q8_0.gguf
+  model_id: text-embedding-bge-m3
+  dimensions: 1024
+  context_size: 4096
+  batch_size: 4096
+  threads: 2
 outputs_dir: ./outputs
 identity_cache_dir: ./cache/identity
 device:
@@ -53,6 +60,15 @@ def test_load_config_resolves_model_paths_from_models_root(
     assert config.pulid.revision == "0123456789abcdef0123456789abcdef01234567"
     assert config.pulid.facexlib_root == models_root / "facexlib"
     assert config.insightface.model_dir == models_root / "insightface/antelopev2"
+    assert config.text_embedding is not None
+    assert config.text_embedding.checkpoint == (
+        models_root / "text_embedding/bge-m3-Q8_0.gguf"
+    )
+    assert config.text_embedding.model_id == "text-embedding-bge-m3"
+    assert config.text_embedding.dimensions == 1024
+    assert config.text_embedding.context_size == 4096
+    assert config.text_embedding.batch_size == 4096
+    assert config.text_embedding.threads == 2
     assert config.device.offload_strategy == "model_cpu_offload"
 
 
@@ -75,4 +91,30 @@ def test_missing_required_key_is_actionable(tmp_path: Path) -> None:
     config_path.write_text("models_root: /tmp/models\n", encoding="utf-8")
 
     with pytest.raises(ConfigError, match="sdxl"):
+        load_config(config_path)
+
+
+def test_text_embedding_limits_are_validated(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, tmp_path / "models")
+    content = config_path.read_text(encoding="utf-8").replace(
+        "threads: 2",
+        "threads: 0",
+    )
+    config_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="text_embedding.threads"):
+        load_config(config_path)
+
+
+def test_text_embedding_batch_covers_the_encoder_context(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, tmp_path / "models")
+    content = config_path.read_text(encoding="utf-8").replace(
+        "batch_size: 4096",
+        "batch_size: 512",
+    )
+    config_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="batch_size.*context_size"):
         load_config(config_path)
