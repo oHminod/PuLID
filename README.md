@@ -9,6 +9,29 @@ Le service peut également être utilisé sans `rp-bot` grâce à un frontend we
 basique inclus dans le dépôt. Une CLI et une API HTTP sont disponibles pour les
 usages avancés. L’ensemble fonctionne sans ComfyUI.
 
+## Sommaire
+
+- [Ce que fournit le projet](#ce-que-fournit-le-projet)
+- [Installation rapide](#installation-rapide)
+  - [1. Cloner le dépôt](#1-cloner-le-dépôt)
+  - [2. Installer sur macOS](#2-installer-sur-macos)
+  - [3. Installer sous Windows](#3-installer-sous-windows)
+  - [4. Choisir le checkpoint SDXL](#4-choisir-le-checkpoint-sdxl)
+- [Utilisation avec rp-bot](#utilisation-avec-rp-bot)
+  - [1. Démarrer PuLID](#1-démarrer-pulid)
+  - [2. Configurer le prompt SDXL](#2-configurer-le-prompt-sdxl-dans-rp-bot)
+  - [3. Connecter le service d’image](#3-connecter-le-service-dimage)
+  - [4. Générer depuis une conversation](#4-générer-depuis-une-conversation)
+- [Frontend autonome](#frontend-autonome)
+- [Embeddings de texte pour rp-bot](#embeddings-de-texte-pour-rp-bot)
+- [Vérifier l’installation](#vérifier-linstallation)
+- [Ajouter un checkpoint SDXL](#ajouter-un-checkpoint-sdxl)
+- [Génération en ligne de commande](#génération-en-ligne-de-commande)
+- [Mémoire GPU et performances](#mémoire-gpu-et-performances)
+- [Fichiers et stockage](#fichiers-et-stockage)
+- [Dépannage](#dépannage)
+- [Documentation avancée](#documentation-avancée)
+
 ## Ce que fournit le projet
 
 | Usage | Interface | Adresse par défaut |
@@ -127,7 +150,9 @@ Sur macOS :
 ./start_pulid_server.sh
 ```
 
-Sur Windows :
+Sur Windows, le plus simple est de double-cliquer sur `start_windows.bat` dans
+l’Explorateur de fichiers. Le script ouvre lui-même sa fenêtre de terminal.
+L’exécution depuis `cmd.exe` reste également possible :
 
 ```bat
 start_windows.bat
@@ -135,6 +160,17 @@ start_windows.bat
 
 Le serveur écoute sur le port `12693`. Le script Windows affiche aussi les
 adresses IPv4 utilisables depuis une autre machine du réseau local.
+
+Pour créer un raccourci sur le Bureau sans déplacer le script :
+
+1. faites un clic droit sur `start_windows.bat` ;
+2. sous Windows 11, choisissez **Afficher plus d’options** ;
+3. choisissez **Envoyer vers > Bureau (créer un raccourci)** ;
+4. renommez éventuellement le raccourci en **Serveur PuLID**.
+
+Conservez le fichier `.bat` dans le dossier du projet : créez un raccourci au
+lieu de le copier sur le Bureau. Si le dossier PuLID est déplacé, recréez le
+raccourci.
 
 Laissez ce terminal ouvert pendant l’utilisation de `rp-bot`. `Ctrl+C` arrête
 le service.
@@ -196,7 +232,8 @@ Sur macOS, dans deux terminaux distincts :
 ./start_frontend_macos.sh
 ```
 
-Sur Windows, dans deux terminaux distincts :
+Sur Windows, double-cliquez successivement sur les deux scripts ; chacun ouvre
+sa propre fenêtre de terminal :
 
 ```bat
 rem Terminal 1
@@ -205,6 +242,10 @@ start_windows.bat
 rem Terminal 2
 start_frontend_windows.bat
 ```
+
+Vous pouvez créer de la même manière deux raccourcis sur le Bureau, par exemple
+**Serveur PuLID** pour `start_windows.bat` et **Frontend PuLID** pour
+`start_frontend_windows.bat`. Démarrez toujours le serveur avant le frontend.
 
 Ouvrez ensuite [http://localhost:8888](http://localhost:8888).
 
