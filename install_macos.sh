@@ -23,8 +23,56 @@ normalize_models_root() {
   fi
 }
 
-if [[ -z "${PULID_MODELS_ROOT:-}" ]]; then
-  DEFAULT_MODELS_ROOT="${PROJECT_DIR}/PuLID_models"
+read_configured_models_root() {
+  local config_file="${PROJECT_DIR}/config/local.yaml"
+  local line=""
+  local value=""
+  [[ -f "${config_file}" ]] || return 0
+  while IFS= read -r line; do
+    if [[ "${line}" == models_root:* ]]; then
+      value="${line#models_root:}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+      if [[ ${#value} -ge 2 ]]; then
+        if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]] ||
+          [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+          value="${value:1:${#value}-2}"
+        fi
+      fi
+      if [[ -n "${value}" && "${value}" != /* ]]; then
+        value="${PROJECT_DIR}/${value}"
+      fi
+      printf '%s\n' "${value%/}"
+      return 0
+    fi
+  done < "${config_file}"
+}
+
+DEFAULT_MODELS_ROOT="${PROJECT_DIR}/PuLID_models"
+REQUESTED_MODELS_ROOT="${PULID_MODELS_ROOT:-}"
+PULID_MODELS_ROOT=""
+
+if [[ -n "${REQUESTED_MODELS_ROOT}" ]]; then
+  REQUESTED_MODELS_ROOT="$(normalize_models_root "${REQUESTED_MODELS_ROOT}")"
+  if [[ -d "${REQUESTED_MODELS_ROOT}" ]]; then
+    PULID_MODELS_ROOT="${REQUESTED_MODELS_ROOT}"
+  fi
+fi
+
+if [[ -z "${PULID_MODELS_ROOT}" ]]; then
+  CONFIGURED_MODELS_ROOT="$(read_configured_models_root)"
+  if [[ -n "${CONFIGURED_MODELS_ROOT}" && -d "${CONFIGURED_MODELS_ROOT}" ]]; then
+    PULID_MODELS_ROOT="${CONFIGURED_MODELS_ROOT}"
+  fi
+fi
+
+if [[ -z "${PULID_MODELS_ROOT}" && -d "${DEFAULT_MODELS_ROOT}" ]]; then
+  PULID_MODELS_ROOT="${DEFAULT_MODELS_ROOT}"
+fi
+
+if [[ -n "${PULID_MODELS_ROOT}" ]]; then
+  echo "Installation existante détectée : ${PULID_MODELS_ROOT}"
+else
   while true; do
     read -r -p "Utiliser l'emplacement par défaut ${DEFAULT_MODELS_ROOT} ? [O/n] " USE_DEFAULT
     case "${USE_DEFAULT:-o}" in
@@ -42,9 +90,6 @@ if [[ -z "${PULID_MODELS_ROOT:-}" ]]; then
       *) echo "Répondez oui ou non." ;;
     esac
   done
-else
-  PULID_MODELS_ROOT="$(normalize_models_root "${PULID_MODELS_ROOT}")"
-  echo "Emplacement fourni par PULID_MODELS_ROOT : ${PULID_MODELS_ROOT}"
 fi
 
 mkdir -p "${PULID_MODELS_ROOT}"

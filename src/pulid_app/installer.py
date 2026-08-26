@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import os
@@ -216,6 +216,71 @@ def prompt_models_root(
         ).strip()
         if raw:
             return resolve_models_root(raw, project_root=project_root)
+
+
+def read_local_installation(
+    *,
+    config_path: Path = LOCAL_CONFIG_PATH,
+    project_root: Path = PROJECT_ROOT,
+) -> tuple[Path | None, Path | None]:
+    """Lit les chemins persistés par une précédente installation."""
+
+    if not config_path.is_file():
+        return None, None
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None, None
+    if not isinstance(raw, dict):
+        return None, None
+
+    raw_models_root = raw.get("models_root")
+    if not isinstance(raw_models_root, str) or not raw_models_root.strip():
+        return None, None
+    models_root = Path(raw_models_root.strip()).expanduser()
+    if not models_root.is_absolute():
+        models_root = project_root / models_root
+    models_root = models_root.resolve(strict=False)
+
+    raw_sdxl = raw.get("sdxl")
+    raw_checkpoint = (
+        raw_sdxl.get("checkpoint") if isinstance(raw_sdxl, dict) else None
+    )
+    if not isinstance(raw_checkpoint, str) or not raw_checkpoint.strip():
+        return models_root, None
+    checkpoint = Path(raw_checkpoint.strip()).expanduser()
+    if not checkpoint.is_absolute():
+        checkpoint = models_root / checkpoint
+    return models_root, checkpoint.resolve(strict=False)
+
+
+def find_existing_models_root(
+    *,
+    project_root: Path = PROJECT_ROOT,
+    config_path: Path = LOCAL_CONFIG_PATH,
+    environ: Mapping[str, str] | None = None,
+) -> Path | None:
+    """Retrouve une racine existante sans poser de question interactive."""
+
+    environment = os.environ if environ is None else environ
+    candidates: list[Path] = []
+    environment_root = environment.get("PULID_MODELS_ROOT", "").strip()
+    if environment_root:
+        candidates.append(
+            resolve_models_root(environment_root, project_root=project_root)
+        )
+    configured_root, _checkpoint = read_local_installation(
+        config_path=config_path,
+        project_root=project_root,
+    )
+    if configured_root is not None:
+        candidates.append(configured_root)
+    candidates.append(resolve_models_root(project_root, project_root=project_root))
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 def _sha256(path: Path) -> str:
@@ -520,11 +585,31 @@ def select_sdxl_checkpoint(
     console: Console,
     *,
     mode: str = "ask",
+    preferred_checkpoint: Path | None = None,
     input_fn: Callable[[str], str] = input,
 ) -> Path:
     checkpoints_dir = models_root / "checkpoints"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     candidates = discover_sdxl_checkpoints(models_root)
+
+    if mode == "ask" and candidates:
+        resolved_preference = (
+            preferred_checkpoint.resolve(strict=False)
+            if preferred_checkpoint is not None
+            else None
+        )
+        checkpoint = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.resolve(strict=False) == resolved_preference
+            ),
+            candidates[0],
+        )
+        console.print(
+            f"[green]✓[/] Checkpoint SDXL déjà présent : [cyan]{checkpoint}[/]"
+        )
+        return checkpoint
 
     has_model = mode == "existing"
     if mode == "ask":
@@ -647,7 +732,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Dossier parent ou dossier déjà nommé PuLID_models. Sans cette option, "
-            "le CLI pose la question interactivement."
+            "le CLI réutilise l'installation détectée ou pose la question."
         ),
     )
     parser.add_argument(
@@ -665,11 +750,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_installation(args: argparse.Namespace, console: Console) -> int:
-    models_root = (
-        resolve_models_root(args.models_root)
-        if args.models_root is not None
-        else prompt_models_root()
-    )
+    configured_root, configured_checkpoint = read_local_installation()
+    if args.models_root is not None:
+        models_root = resolve_models_root(args.models_root)
+    else:
+        models_root = find_existing_models_root() or prompt_models_root()
     ensure_writable_directory(models_root)
     configure_external_model_caches(models_root)
     for relative in (
@@ -683,7 +768,17 @@ def run_installation(args: argparse.Namespace, console: Console) -> int:
         (models_root / relative).mkdir(parents=True, exist_ok=True)
 
     console.print(f"Racine des modèles : [bold cyan]{models_root}[/]")
-    checkpoint = select_sdxl_checkpoint(models_root, console, mode=args.sdxl)
+    preferred_checkpoint = (
+        configured_checkpoint
+        if configured_root == models_root and configured_checkpoint is not None
+        else None
+    )
+    checkpoint = select_sdxl_checkpoint(
+        models_root,
+        console,
+        mode=args.sdxl,
+        preferred_checkpoint=preferred_checkpoint,
+    )
     prepare_required_assets(models_root, console, force_configs=args.force_configs)
     local_config = write_local_config(models_root, checkpoint)
     console.print()

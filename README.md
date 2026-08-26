@@ -36,18 +36,22 @@ La méthode recommandée crée `.venv` s'il est absent, installe le runtime adap
 install_windows.bat
 ```
 
-L'installateur demande d'abord s'il faut utiliser l'emplacement par défaut. En
-cas de réponse négative, le chemin fourni peut désigner soit un dossier parent,
-soit directement un dossier nommé `PuLID_models` ; dans ce dernier cas aucun
-sous-dossier du même nom n'est ajouté.
+Lors d'une première installation, l'installateur demande s'il faut utiliser
+l'emplacement par défaut. En cas de réponse négative, le chemin fourni peut
+désigner soit un dossier parent, soit directement un dossier nommé
+`PuLID_models` ; dans ce dernier cas aucun sous-dossier du même nom n'est ajouté.
+Lors d'une mise à jour, il réutilise sans question le dossier référencé par
+`PULID_MODELS_ROOT` ou `config/local.yaml`, puis le dossier par défaut s'il
+existe déjà.
 
 Il vérifie ensuite les empreintes et installe ou répare PuLID v1.1,
 AntelopeV2, EVA-CLIP, FaceXLib, BGE-M3, le snapshot de code PuLID et les
-configurations/tokenizers SDXL. Les fichiers valides sont réutilisés. Pour SDXL,
-il demande si un checkpoint existe déjà : l'utilisateur peut le déposer dans
-`checkpoints/` et le sélectionner, ou accepter le téléchargement du modèle
-officiel SDXL Base 1.0. À la fin, `doctor` doit réussir sans autre téléchargement
-manuel.
+configurations/tokenizers SDXL. Les fichiers valides sont réutilisés. Un
+checkpoint `.safetensors` déjà présent dans `checkpoints/` est lui aussi
+réutilisé sans question, en priorité celui enregistré dans `config/local.yaml`.
+Si aucun checkpoint n'existe, l'utilisateur peut en déposer un dans
+`checkpoints/` ou accepter le téléchargement du modèle officiel SDXL Base 1.0.
+À la fin, `doctor` doit réussir sans autre téléchargement manuel.
 
 L'installateur essaie d'abord la wheel macOS arm64 Metal précompilée. Si cette
 archive n'est pas exploitable, il compile automatiquement `llama-cpp-python`
@@ -141,6 +145,10 @@ jour du dépôt :
 pulid-install
 ```
 
+Les scripts `install_macos.sh` et `install_windows.bat` suivent le même flux :
+une relance détecte l'installation existante, contrôle les fichiers et ne
+télécharge que les éléments absents, invalides ou mis à jour.
+
 Les scripts historiques `prepare_pulid.py` et `prepare_sdxl_config.py` restent
 disponibles pour ne préparer qu'un composant.
 
@@ -182,8 +190,9 @@ reste disponible :
 python scripts/prepare_sdxl_config.py
 ```
 
-La racine peut aussi être imposée à un script d'installation avec
-`PULID_MODELS_ROOT` ; cette variable évite alors la question interactive.
+Une racine existante peut aussi être imposée à un script d'installation avec
+`PULID_MODELS_ROOT` ; lorsque ce chemin désigne le dossier `PuLID_models` ou son
+parent, cette variable évite la question interactive.
 
 ## 6. Test MPS
 

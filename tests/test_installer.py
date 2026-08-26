@@ -17,9 +17,12 @@ from pulid_app.installer import (
     InstallerError,
     choose_checkpoint,
     ensure_huggingface_asset,
+    find_existing_models_root,
     install_antelope_archive,
     prompt_models_root,
+    read_local_installation,
     resolve_models_root,
+    select_sdxl_checkpoint,
     validate_sdxl_config_tree,
     write_local_config,
 )
@@ -56,6 +59,62 @@ def test_prompt_models_root_uses_default_or_normalizes_custom_path(tmp_path: Pat
         project_root=tmp_path,
         input_fn=lambda _prompt: next(custom_answers),
     ) == tmp_path / "external" / "PuLID_models"
+
+
+def test_existing_installation_is_reused_from_local_config(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    models_root = tmp_path / "external" / "PuLID_models"
+    checkpoint = models_root / "checkpoints" / "custom.safetensors"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.touch()
+    config_path = project_root / "config" / "local.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        "models_root: "
+        + models_root.as_posix()
+        + "\nsdxl:\n  checkpoint: checkpoints/custom.safetensors\n",
+        encoding="utf-8",
+    )
+
+    assert read_local_installation(
+        config_path=config_path,
+        project_root=project_root,
+    ) == (models_root, checkpoint)
+    assert find_existing_models_root(
+        project_root=project_root,
+        config_path=config_path,
+        environ={},
+    ) == models_root
+
+
+def test_existing_default_models_root_is_reused_without_config(tmp_path: Path) -> None:
+    models_root = tmp_path / "PuLID_models"
+    models_root.mkdir()
+
+    assert find_existing_models_root(
+        project_root=tmp_path,
+        config_path=tmp_path / "missing.yaml",
+        environ={},
+    ) == models_root
+
+
+def test_existing_sdxl_checkpoint_skips_all_questions(tmp_path: Path) -> None:
+    models_root = tmp_path / "PuLID_models"
+    first = models_root / "checkpoints" / "a.safetensors"
+    preferred = models_root / "checkpoints" / "preferred.safetensors"
+    first.parent.mkdir(parents=True)
+    first.touch()
+    preferred.touch()
+
+    selected = select_sdxl_checkpoint(
+        models_root,
+        _console(),
+        preferred_checkpoint=preferred,
+        input_fn=lambda _prompt: pytest.fail("aucune question attendue"),
+    )
+
+    assert selected == preferred
 
 
 def test_huggingface_asset_is_idempotent_and_repairs_invalid_file(

@@ -2,9 +2,38 @@
 setlocal EnableExtensions
 
 set "PROJECT_DIR=%~dp0"
-if defined PULID_MODELS_ROOT goto :models_root_selected
-
 set "DEFAULT_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
+set "REQUESTED_MODELS_ROOT=%PULID_MODELS_ROOT%"
+set "PULID_MODELS_ROOT="
+
+if not defined REQUESTED_MODELS_ROOT goto :check_configured_models_root
+for %%I in ("%REQUESTED_MODELS_ROOT%") do set "CUSTOM_MODELS_FULL=%%~fI"
+for %%I in ("%CUSTOM_MODELS_FULL%") do set "CUSTOM_MODELS_NAME=%%~nxI"
+if /I "%CUSTOM_MODELS_NAME%"=="PuLID_models" (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%"
+) else (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%\PuLID_models"
+)
+if exist "%PULID_MODELS_ROOT%\" goto :existing_models_root
+set "PULID_MODELS_ROOT="
+
+:check_configured_models_root
+set "CONFIG_MODELS_ROOT="
+if not exist "%PROJECT_DIR%config\local.yaml" goto :check_default_models_root
+for /f "delims=" %%I in ('powershell.exe -NoProfile -Command "$value = $null; foreach ($line in [IO.File]::ReadLines((Join-Path $env:PROJECT_DIR 'config\local.yaml'))) { if ($line.StartsWith('models_root:')) { $value = $line.Substring(12).Trim().Trim([char]39).Trim([char]34); break } }; if ($value) { if (-not [IO.Path]::IsPathRooted($value)) { $value = Join-Path $env:PROJECT_DIR $value }; [IO.Path]::GetFullPath($value) }"') do if not defined CONFIG_MODELS_ROOT set "CONFIG_MODELS_ROOT=%%I"
+if not defined CONFIG_MODELS_ROOT goto :check_default_models_root
+if exist "%CONFIG_MODELS_ROOT%\" (
+    set "PULID_MODELS_ROOT=%CONFIG_MODELS_ROOT%"
+    goto :existing_models_root
+)
+
+:check_default_models_root
+if exist "%DEFAULT_MODELS_ROOT%\" (
+    set "PULID_MODELS_ROOT=%DEFAULT_MODELS_ROOT%"
+    goto :existing_models_root
+)
+
+:prompt_models_root
 set "USE_DEFAULT="
 set /p "USE_DEFAULT=Utiliser l'emplacement par defaut %DEFAULT_MODELS_ROOT% ? [O/n] "
 if /I "%USE_DEFAULT%"=="N" goto :custom_models_root
@@ -27,23 +56,19 @@ if /I "%CUSTOM_MODELS_NAME%"=="PuLID_models" (
 )
 goto :models_root_ready
 
-:models_root_selected
-for %%I in ("%PULID_MODELS_ROOT%") do set "CUSTOM_MODELS_FULL=%%~fI"
-for %%I in ("%CUSTOM_MODELS_FULL%") do set "CUSTOM_MODELS_NAME=%%~nxI"
-if /I "%CUSTOM_MODELS_NAME%"=="PuLID_models" (
-    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%"
-) else (
-    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%\PuLID_models"
-)
-echo Emplacement fourni par PULID_MODELS_ROOT : %PULID_MODELS_ROOT%
+:existing_models_root
+echo Installation existante detectee : %PULID_MODELS_ROOT%
 
 :models_root_ready
-if not exist "%PULID_MODELS_ROOT%\" mkdir "%PULID_MODELS_ROOT%"
+if exist "%PULID_MODELS_ROOT%\" goto :models_root_available
+mkdir "%PULID_MODELS_ROOT%"
 if errorlevel 1 (
     echo [ERREUR] Impossible de creer le dossier de modeles :
     echo   %PULID_MODELS_ROOT%
     goto :error_exit
 )
+
+:models_root_available
 
 set "HF_HOME=%PULID_MODELS_ROOT%\huggingface"
 set "HUGGINGFACE_HUB_CACHE=%PULID_MODELS_ROOT%\huggingface\hub"
