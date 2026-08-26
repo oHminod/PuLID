@@ -12,6 +12,7 @@ from pulid_app.models.text_embedding import (
     TextEmbeddingService,
     _cuda_dll_candidates,
     _nvidia_driver_cuda_dll_directories,
+    _prepend_dll_directories_to_path,
     load_llama_cpp_embedding_model,
 )
 
@@ -71,6 +72,21 @@ def test_nvidia_driver_cuda_dll_directories_prefer_newest(
     directories = _nvidia_driver_cuda_dll_directories(tmp_path)
 
     assert directories == (newer.parent,)
+
+
+def test_cuda_dll_directories_are_prepended_to_path_without_duplicates() -> None:
+    torch_lib = Path(r"D:\PuLID\.venv\Lib\site-packages\torch\lib")
+    driver_store = Path(r"C:\Windows\System32\DriverStore\NVIDIA")
+
+    result = _prepend_dll_directories_to_path(
+        rf"C:\Windows\System32;{torch_lib}",
+        (torch_lib, driver_store),
+        separator=";",
+    )
+
+    assert result == (
+        rf"{torch_lib};{driver_store};C:\Windows\System32"
+    )
 
 
 def test_llama_cpp_factory_forces_cpu_and_local_checkpoint(

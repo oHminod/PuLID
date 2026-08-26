@@ -84,6 +84,26 @@ def _nvidia_driver_cuda_dll_directories(windows_root: Path) -> tuple[Path, ...]:
     return (runtime_dlls[0].parent,) if runtime_dlls else ()
 
 
+def _prepend_dll_directories_to_path(
+    current_path: str,
+    directories: Sequence[Path],
+    *,
+    separator: str,
+) -> str:
+    """Préfixe PATH sans dupliquer les dossiers déjà présents."""
+
+    entries = [str(directory) for directory in directories]
+    entries.extend(part for part in current_path.split(separator) if part)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        key = entry.casefold()
+        if key not in seen:
+            selected.append(entry)
+            seen.add(key)
+    return separator.join(selected)
+
+
 def _windows_cuda_dll_directories() -> tuple[Path, ...]:
     if os.name != "nt":
         return ()
@@ -104,6 +124,7 @@ def _windows_cuda_dll_directories() -> tuple[Path, ...]:
 @contextmanager
 def _cuda_dll_search_path(device_type: str):
     handles: list[Any] = []
+    original_path: str | None = None
     try:
         if device_type == "cuda" and os.name == "nt":
             add_directory = getattr(os, "add_dll_directory", None)
@@ -123,12 +144,20 @@ def _cuda_dll_search_path(device_type: str):
                     "Installez le dernier pilote NVIDIA, puis relancez "
                     "install_windows.bat."
                 )
+            original_path = os.environ.get("PATH", "")
+            os.environ["PATH"] = _prepend_dll_directories_to_path(
+                original_path,
+                directories,
+                separator=os.pathsep,
+            )
             for directory in directories:
                 handles.append(add_directory(str(directory)))
         yield
     finally:
         for handle in reversed(handles):
             handle.close()
+        if original_path is not None:
+            os.environ["PATH"] = original_path
 
 
 def load_llama_cpp_embedding_model(
