@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO
+import logging
 from pathlib import Path
 import secrets
 import unicodedata
@@ -49,6 +50,9 @@ from pulid_app.paths import (
     resolve_sdxl_checkpoint,
 )
 from pulid_app.pipeline.generator import DEFAULT_NEGATIVE_PROMPT, ImageGenerator
+
+
+LOGGER = logging.getLogger("uvicorn.error")
 
 
 DEFAULT_METHOD = "default"
@@ -647,6 +651,10 @@ def create_app(
                     input_value=request.input,
                 )
         except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
+            LOGGER.exception(
+                "Échec de la requête POST /v1/embeddings (%s)",
+                type(exc).__name__,
+            )
             raise _embedding_http_error(exc) from exc
 
     @app.post("/generate", response_class=Response)

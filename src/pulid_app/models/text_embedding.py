@@ -183,7 +183,9 @@ def load_llama_cpp_embedding_model(
         "op_offload": uses_accelerator,
         "flash_attn": uses_accelerator,
         "use_mmap": True,
-        "verbose": False,
+        # Sous CUDA, les messages natifs confirment les couches offloadées et
+        # rendent les erreurs de DLL/allocation visibles dans le log serveur.
+        "verbose": device_type == "cuda",
     }
     if config.threads > 0:
         llama_options["n_threads"] = config.threads
