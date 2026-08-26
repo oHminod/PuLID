@@ -1,339 +1,309 @@
-# PuLID Python
+# PuLID pour rp-bot
 
-Pipeline Python autonome pour générer des images SDXL conditionnées par une
-identité PuLID. Le backend principal est Apple Silicon/MPS ; CUDA et CPU restent
-pris en charge par la même architecture. Le projet ne dépend pas de ComfyUI.
+Ce projet fournit le service local de génération d’images de
+[`rp-bot`](https://github.com/oHminod/rp-bot). Il transforme l’avatar d’un
+personnage et le contexte d’un message en une image SDXL tout en préservant son
+identité grâce à PuLID.
 
-Les phases 1 à 16 du plan sont implémentées : configuration et caches externes,
-InsightFace, SDXL local, gestion mémoire, adaptateur PuLID v1.1, générateur,
-CLI, benchmark, compatibilité CUDA, tests automatisés, erreurs métier et
-documentation finale.
+Le service peut également être utilisé sans `rp-bot` grâce à un frontend web
+basique inclus dans le dépôt. Une CLI et une API HTTP sont disponibles pour les
+usages avancés. L’ensemble fonctionne sans ComfyUI.
 
-## Frontend local de génération
+## Ce que fournit le projet
 
-Une interface web autonome est disponible dans `frontend/`. Elle est servie sur
-le port `8888` et relaie uniquement les routes existantes `GET /models` et
-`POST /generate` du backend sur le port `12693`. Ce relais reste dans le serveur
-frontend et ne nécessite aucune modification du backend ni de sa configuration
-CORS.
+| Usage | Interface | Adresse par défaut |
+|---|---|---|
+| Génération depuis une conversation `rp-bot` | Action PuLID dans le chat | `http://127.0.0.1:12693` |
+| Génération manuelle | Frontend web inclus | `http://127.0.0.1:8888` |
+| Embeddings de texte pour la mémoire de `rp-bot` | API compatible OpenAI | `http://127.0.0.1:12693/v1` |
+| Scripts et automatisations | CLI `pulid-gen` | terminal |
 
-Lancer d'abord le backend, puis le frontend dans un second terminal :
+Le backend prend en charge Apple Silicon avec MPS, les GPU NVIDIA avec CUDA et
+le CPU. Sur macOS, la détection faciale InsightFace reste exécutée sur CPU.
 
-```bash
-# macOS
-./start_pulid_server.sh
-./start_frontend_macos.sh
+## Installation rapide
+
+### Prérequis
+
+- une connexion Internet lors de la première installation ;
+- Python 3.11 à 3.13, installé automatiquement par les scripts si nécessaire ;
+- sur macOS, un Mac Apple Silicon ;
+- sous Windows, un GPU NVIDIA et un pilote compatible avec CUDA 13 ;
+- au moins 20 Go disponibles, davantage si plusieurs checkpoints SDXL sont
+  installés ;
+- sous Windows, Microsoft C++ Build Tools si InsightFace doit être compilé.
+
+Les modèles sont volumineux et ne sont pas versionnés avec le projet. Sur le Mac
+prévu pour ce dépôt, utilisez le SSD externe :
+
+```text
+/Volumes/SSD/Documents/PuLID_models
 ```
 
-Sous Windows, lancer séparément :
+L’installateur peut aussi utiliser un autre dossier `PuLID_models`. Il y place
+les checkpoints, PuLID, AntelopeV2, BGE-M3 et tous les caches lourds.
+
+### macOS
+
+Depuis la racine du projet :
+
+```bash
+./install_macos.sh
+```
+
+À la première exécution, indiquez l’emplacement des modèles. Pour utiliser le
+SSD externe, refusez l’emplacement proposé puis saisissez :
+
+```text
+/Volumes/SSD/Documents/PuLID_models
+```
+
+### Windows
+
+Depuis l’Explorateur ou `cmd.exe` :
 
 ```bat
-start_windows.bat
-start_frontend_windows.bat
-```
-
-Ouvrir ensuite [http://localhost:8888](http://localhost:8888). Le formulaire
-rend obligatoires l'image de référence, le nom du personnage, le prompt et le
-modèle. Il expose aussi le prompt négatif (valeur du pipeline, personnalisé ou
-désactivé), Clip skip 2, CFG, steps, force d'identité, méthode de sampling,
-courbe de sigmas et seed. Le PNG reçu reste en mémoire dans le navigateur et
-peut être téléchargé avec la seed effective renvoyée par le backend.
-
-Pour viser un backend lancé à une autre adresse, transmettre par exemple
-`--backend-url http://192.168.1.20:12693` au script frontend. Le frontend reste
-accessible uniquement sur la machine locale tant que son option `--host` reste
-à `127.0.0.1`.
-
-## 1. Prérequis
-
-- une connexion Internet pour la première installation ;
-- sur Mac, un Apple Silicon avec PyTorch/MPS ;
-- sous Windows, un GPU NVIDIA, un pilote compatible CUDA 13 et, si InsightFace
-  doit être compilé, Microsoft C++ Build Tools ;
-- au moins 20 Go libres avec le SDXL Base proposé, davantage pour des checkpoints
-  SDXL supplémentaires.
-
-Les scripts installent `uv`, Python 3.11 et les dépendances si nécessaire. Les
-modèles sont placés par défaut dans `PuLID_models/` à la racine du projet ; ce
-dossier est ignoré par Git. Un SSD ou tout autre dossier accessible peut être
-choisi à la place.
-
-## 2. Création de l'environnement
-
-La méthode recommandée crée `.venv` s'il est absent, installe le runtime adapté
-à la plateforme, puis lance le CLI de préparation des modèles :
-
-```bash
-# macOS
-./install_macos.sh
-
-# Windows, depuis l'Explorateur ou cmd.exe
 install_windows.bat
 ```
 
-Lors d'une première installation, l'installateur demande s'il faut utiliser
-l'emplacement par défaut. En cas de réponse négative, le chemin fourni peut
-désigner soit un dossier parent, soit directement un dossier nommé
-`PuLID_models` ; dans ce dernier cas aucun sous-dossier du même nom n'est ajouté.
-Lors d'une mise à jour, il réutilise sans question le dossier référencé par
-`PULID_MODELS_ROOT` ou `config/local.yaml`, puis le dossier par défaut s'il
-existe déjà.
+Le script installe l’environnement Python, les dépendances CUDA et les modèles,
+puis tente de configurer le pare-feu Windows pour le port `12693` sur les
+réseaux privés.
 
-Il vérifie ensuite les empreintes et installe ou répare PuLID v1.1,
-AntelopeV2, EVA-CLIP, FaceXLib, BGE-M3, le snapshot de code PuLID et les
-configurations/tokenizers SDXL. Les fichiers valides sont réutilisés. Un
-checkpoint `.safetensors` déjà présent dans `checkpoints/` est lui aussi
-réutilisé sans question, en priorité celui enregistré dans `config/local.yaml`.
-Si aucun checkpoint n'existe, l'utilisateur peut en déposer un dans
-`checkpoints/` ou accepter le téléchargement du modèle officiel SDXL Base 1.0.
-À la fin, `doctor` doit réussir sans autre téléchargement manuel.
+#### Si l’installation d’InsightFace échoue
 
-L'installateur essaie d'abord la wheel macOS arm64 Metal précompilée. Si cette
-archive n'est pas exploitable, il compile automatiquement `llama-cpp-python`
-avec Accelerate et `GGML_METAL=ON` ; les outils de ligne de commande Xcode sont
-alors requis. L'option serveur `--CPU` reste disponible avec ce même runtime.
+Si l’installation s’arrête avec une erreur indiquant que Microsoft Visual C++
+14 ou `cl.exe` est requis, ou qu’une wheel InsightFace ne peut pas être
+compilée :
 
-Pour créer l'environnement manuellement depuis la racine du projet :
+1. ouvrez la page officielle
+   [Téléchargements Visual Studio](https://visualstudio.microsoft.com/downloads/) ;
+2. dans **Outils pour Visual Studio**, téléchargez **Build Tools for Visual
+   Studio** dans sa version stable actuelle ;
+3. exécutez l’installateur en tant qu’administrateur ;
+4. dans l’onglet **Charges de travail**, sélectionnez **Développement Desktop en
+   C++** (`Desktop development with C++`) ;
+5. conservez les composants recommandés et vérifiez que les outils MSVC pour
+   x64/x86 ainsi qu’un SDK Windows récent sont sélectionnés ;
+6. cliquez sur **Installer**, puis redémarrez Windows si l’installateur le
+   demande ;
+7. ouvrez un nouveau terminal dans le dossier PuLID et relancez :
+
+   ```bat
+   install_windows.bat
+   ```
+
+Si Build Tools est déjà présent, ouvrez **Visual Studio Installer**, choisissez
+**Modifier**, puis ajoutez la charge de travail **Développement Desktop en
+C++**. Le simple **Microsoft Visual C++ Redistributable** ne suffit pas : il
+installe les bibliothèques d’exécution, mais pas le compilateur. La procédure
+Microsoft détaillée est disponible dans
+[Installer les outils Microsoft C++](https://learn.microsoft.com/cpp/overview/acquire-msvc?view=msvc-170).
+
+### Choix du checkpoint SDXL
+
+Si un checkpoint `.safetensors` existe déjà, placez-le dans le dossier
+`checkpoints` de `PuLID_models` lorsque l’installateur le demande. Sinon, vous
+pouvez accepter le téléchargement de SDXL Base 1.0.
+
+L’installation est réparable et idempotente : relancer le script de votre
+plateforme vérifie les fichiers présents et ne récupère que ce qui manque ou ce
+qui est invalide.
+
+## Utilisation avec rp-bot
+
+`rp-bot` est l’interface principale prévue pour ce service. Il prépare le prompt
+à partir du message et de la scène, envoie l’avatar de l’auteur comme référence,
+puis conserve l’image générée dans la discussion.
+
+### 1. Démarrer PuLID
+
+Sur macOS :
 
 ```bash
-uv venv --python 3.11
-source .venv/bin/activate
+./start_pulid_server.sh
 ```
 
-À chaque nouvelle session shell, réactiver l'environnement avec
-`source .venv/bin/activate`.
+Sur Windows :
 
-## 3. Installation
+```bat
+start_windows.bat
+```
 
-L'installation manuelle complète pour l'inférence, le serveur, les embeddings
-et le développement est :
+Le serveur écoute sur le port `12693`. Le script Windows affiche aussi les
+adresses IPv4 utilisables depuis une autre machine du réseau local.
+
+Laissez ce terminal ouvert pendant l’utilisation de `rp-bot`. `Ctrl+C` arrête
+le service.
+
+### 2. Configurer le prompt SDXL dans rp-bot
+
+Dans `rp-bot`, ouvrez **Réglages > Tâches LLM et prompts**, puis configurez la
+tâche **Prompt d’image SDXL** avec un fournisseur et un modèle de texte actifs.
+Cette tâche transforme le message de roleplay en prompt visuel adapté au
+checkpoint sélectionné.
+
+### 3. Connecter le service d’image
+
+Ouvrez **Réglages > Modèles d’image**, puis la section **Génération SDXL avec
+PuLID** :
+
+1. activez la génération SDXL avec PuLID ;
+2. renseignez l’URL du serveur ;
+3. choisissez le checkpoint, la méthode de sampling et les autres paramètres ;
+4. cliquez sur **Enregistrer**.
+
+Utilisez l’une de ces adresses :
+
+- `http://127.0.0.1:12693` si PuLID et `rp-bot` tournent sur la même machine ;
+- `http://<IP_DU_PC>:12693` si PuLID tourne sur un PC Windows du réseau local.
+
+Le badge **Catalogue disponible** confirme que `rp-bot` atteint le serveur. Le
+bouton **Actualiser** recharge la liste des checkpoints et des samplers.
+
+### 4. Générer depuis une conversation
+
+Le personnage doit disposer d’un avatar contenant un visage exploitable. Dans
+le chat, après un message du personnage :
+
+1. survolez ou sélectionnez la bulle du message ;
+2. cliquez sur l’action au visage intitulée **Générer avec PuLID** ;
+3. attendez la fin de la génération.
+
+Les réglages rapides **Génération SDXL PuLID** sont également disponibles dans
+le panneau du chat. L’option **Inspecter le prompt** permet de relire et modifier
+les prompts positif et négatif avant leur envoi.
+
+L’image finale apparaît dans la galerie de la conversation. `rp-bot` la stocke
+dans son propre dossier `.local-data/generated-images` avec le checkpoint, le
+sampler, les sigmas et la seed réellement utilisés.
+
+## Frontend autonome
+
+Le frontend inclus permet de générer une image sans lancer `rp-bot`. Démarrez
+d’abord le backend, puis ouvrez un second terminal.
+
+Sur macOS, dans deux terminaux distincts :
 
 ```bash
-uv pip install -e '.[inference,pulid,server,embeddings,dev]'
-pulid-install
+# Terminal 1
+./start_pulid_server.sh
+
+# Terminal 2
+./start_frontend_macos.sh
 ```
 
-Pour automatiser ce CLI avec un emplacement et le modèle SDXL officiel :
+Sur Windows, dans deux terminaux distincts :
+
+```bat
+rem Terminal 1
+start_windows.bat
+
+rem Terminal 2
+start_frontend_windows.bat
+```
+
+Ouvrez ensuite [http://localhost:8888](http://localhost:8888).
+
+Le formulaire demande une image de référence, le nom du personnage, un prompt
+et un checkpoint. Il permet aussi de régler le prompt négatif, Clip Skip 2, le
+CFG, les steps, la force d’identité, le sampler, les sigmas et la seed.
+
+Le PNG reste dans le navigateur jusqu’à son téléchargement. Contrairement à la
+CLI, le frontend ne crée pas automatiquement de fichier dans `outputs/`.
+
+Pour cibler un backend situé ailleurs :
 
 ```bash
-pulid-install --models-root /chemin/parent --sdxl download
+./start_frontend_macos.sh --backend-url http://192.168.1.20:12693
 ```
 
-`--models-root` accepte également le chemin final `.../PuLID_models`.
-`--sdxl existing` exige qu'au moins un `.safetensors` soit déjà présent dans
-`checkpoints/`, et `--force-configs` force l'actualisation des petites
-configurations SDXL.
+L’équivalent Windows accepte la même option :
 
-Vérifier ensuite l'installation et la configuration sans charger les poids :
-
-```bash
-pulid-gen --version
-pulid-gen doctor
-python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
+```bat
+start_frontend_windows.bat --backend-url http://192.168.1.20:12693
 ```
 
-`doctor` vérifie notamment `models_root`, les checkpoints, AntelopeV2, les
-configs SDXL, le runtime PuLID épinglé, EVA-CLIP, FaceXLib, les permissions, les
-devices et les versions des dépendances critiques.
+## Embeddings de texte pour rp-bot
 
-## 4. Arborescence des modèles
+Le même serveur expose BGE-M3 au format OpenAI pour la mémoire vectorielle de
+`rp-bot` :
 
-Les fichiers lourds restent sous `models_root`, dont le dossier est ignoré par
-Git :
+- `GET /v1/models` liste le modèle `text-embedding-bge-m3` ;
+- `POST /v1/embeddings` calcule des vecteurs de 1024 dimensions.
+
+Si le fournisseur **LM Studio local** de `rp-bot` sert uniquement aux
+embeddings, configurez-le ainsi dans **Réglages > Fournisseurs** :
 
 ```text
-<models_root>/
-├── checkpoints/
-│   ├── sd_xl_base_1.0.safetensors         # si le téléchargement est accepté
-│   └── <checkpoint-utilisateur>.safetensors
-├── pulid_v1.1.safetensors
-├── antelopev2/
-│   ├── 1k3d68.onnx
-│   ├── 2d106det.onnx
-│   ├── genderage.onnx
-│   ├── glintr100.onnx
-│   └── scrfd_10g_bnkps.onnx
-├── sdxl/stable-diffusion-xl-base-1.0-config/
-│   ├── model_index.json
-│   ├── scheduler/
-│   ├── text_encoder/
-│   ├── text_encoder_2/
-│   ├── tokenizer/
-│   ├── tokenizer_2/
-│   ├── unet/
-│   └── vae/
-├── sources/PuLID/                        # code officiel à révision épinglée
-│   ├── eva_clip/
-│   └── pulid/
-├── facexlib/weights/
-├── text_embedding/
-│   └── bge-m3-Q8_0.gguf
-├── huggingface/
-├── torch/
-└── other/
+URL de base : http://127.0.0.1:12693/v1
+Clé API : vide
+Activé : oui
 ```
 
-La réparation complète est idempotente et peut être relancée après une mise à
-jour du dépôt :
+Puis configurez la tâche **Embeddings locaux** dans **Réglages > Tâches LLM et
+prompts** :
+
+```text
+fournisseur : LM Studio local
+modèle : text-embedding-bge-m3
+format : embedding
+activé : oui
+```
+
+Si LM Studio sert également au chat, ne remplacez pas son URL : le backend PuLID
+n’expose pas `/v1/chat/completions`. La procédure pour séparer les fournisseurs
+et reconstruire les index LanceDB est détaillée dans
+[`RP_BOT_TEXT_EMBEDDING_INTEGRATION.md`](RP_BOT_TEXT_EMBEDDING_INTEGRATION.md).
+
+## Vérifier l’installation
+
+Les scripts de démarrage activent automatiquement l’environnement virtuel. Pour
+utiliser les commandes directement sur macOS ou Linux :
 
 ```bash
-pulid-install
+source .venv/bin/activate
+pulid-gen --version
+pulid-gen doctor
+pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
 ```
 
-Les scripts `install_macos.sh` et `install_windows.bat` suivent le même flux :
-une relance détecte l'installation existante, contrôle les fichiers et ne
-télécharge que les éléments absents, invalides ou mis à jour.
+Sous Windows :
 
-Les scripts historiques `prepare_pulid.py` et `prepare_sdxl_config.py` restent
-disponibles pour ne préparer qu'un composant.
-
-## 5. Configuration du checkpoint SDXL
-
-`config/default.yaml` contient les valeurs du dépôt. L'installateur génère
-`config/local.yaml`, ignoré par Git, avec le `models_root`, le checkpoint SDXL
-sélectionné et le device de la plateforme. Cette configuration locale est
-chargée automatiquement ; une option `--config` ou `PULID_CONFIG` explicite
-reste prioritaire.
-
-```yaml
-models_root: /chemin/choisi/PuLID_models
-
-sdxl:
-  checkpoint: checkpoints/sd_xl_base_1.0.safetensors
-  config_dir: sdxl/stable-diffusion-xl-base-1.0-config
-
-device:
-  preferred: mps
-  dtype: float16
-  offload_strategy: none
-
-text_embedding:
-  checkpoint: text_embedding/bge-m3-Q8_0.gguf
-  model_id: text-embedding-bge-m3
-  dimensions: 1024
-  context_size: 8192
-  batch_size: 8192
-  threads: 0  # automatique
+```bat
+.venv\Scripts\pulid-gen.exe --version
+.venv\Scripts\pulid-gen.exe doctor
 ```
 
-Un monofichier SDXL ne contient pas les JSON et tokenizers attendus par
-Diffusers. `pulid-install` actualise uniquement ces petits fichiers et refuse
-les poids distants dans leur dossier de configuration. La commande spécialisée
-reste disponible :
+`doctor` contrôle les checkpoints, les modèles de visage, PuLID, BGE-M3, les
+permissions, le device et les dépendances critiques sans lancer une génération
+complète.
 
-```bash
-python scripts/prepare_sdxl_config.py
+## Ajouter un checkpoint SDXL
+
+Déposez le fichier `.safetensors` dans :
+
+```text
+<PuLID_models>/checkpoints/
 ```
 
-Une racine existante peut aussi être imposée à un script d'installation avec
-`PULID_MODELS_ROOT` ; lorsque ce chemin désigne le dossier `PuLID_models` ou son
-parent, cette variable évite la question interactive.
+Le VAE du checkpoint par défaut
+`realvisxlV50_v50LightningBakedvae.safetensors` est intégré : aucun VAE externe
+n’est nécessaire. Le serveur charge toujours un fichier local explicite et ne
+télécharge jamais implicitement un modèle SDXL pendant une génération.
 
-## 6. Test MPS
+Après l’ajout, utilisez **Actualiser** dans `rp-bot` ou rechargez le frontend
+autonome. Le nom du modèle est affiché sans l’extension `.safetensors`.
 
-```bash
-python scripts/test_mps.py
-python scripts/test_memory.py
-```
+## Génération en ligne de commande
 
-Le premier script affiche PyTorch, MPS/CUDA, le dtype et la mémoire détectée,
-puis exécute un petit calcul MPS. Le second vérifie le déplacement et le
-nettoyage mémoire sans charger de checkpoint lourd. La sélection automatique
-suit l'ordre CUDA, MPS, CPU.
-
-## 7. Test InsightFace
-
-La référence de test est `inputs/noemie.webp`. JPEG, PNG, WebP, BMP et TIFF sont
-acceptés.
-
-```bash
-python scripts/test_insightface.py \
-  --image inputs/noemie.webp \
-  --save-metadata
-
-python scripts/cache_identity.py \
-  --character noemie \
-  --image inputs/noemie.webp
-```
-
-Sur macOS, InsightFace utilise `CPUExecutionProvider`. Le cache ArcFace est
-adressé par le SHA-256 du contenu ; renommer l'image ne déclenche donc pas un
-nouveau calcul. Pour une photo comportant plusieurs visages, fournir
-`--face-index N`. Utiliser `--force` pour recalculer le cache.
-
-## 8. Test SDXL
-
-Le chargement vise toujours un fichier `.safetensors` local explicite et utilise
-`local_files_only=True` : aucun téléchargement implicite de SDXL n'est permis.
-
-```bash
-python scripts/test_sdxl.py \
-  --prompt "portrait photo of a woman, tropical beach, studio lighting" \
-  --seed 42
-```
-
-Le test écrit `outputs/sdxl_test_<timestamp>.png` et son JSON adjacent. Sur MPS,
-le pipeline utilise FP16 et n'essaie FP32 que pour une incompatibilité de dtype
-admissible ; un manque de mémoire ne déclenche pas ce second essai.
-
-Les prompts positifs et négatifs utilisent l'encodage Diffusers natif jusqu'à
-75 jetons CLIP utiles. Entre 76 et 255 jetons, ils sont segmentés en blocs CLIP
-dont les embeddings sont concaténés sans troncature. Au-delà de 255 jetons avec
-l'un des deux tokenizers SDXL, la génération échoue explicitement avec
-`PromptTooLongError`.
-
-## 9. Test PuLID
-
-Valider d'abord l'adaptateur, puis son injection dans le véritable UNet :
-
-```bash
-python scripts/test_pulid_adapter.py \
-  --device mps \
-  --reference inputs/noemie.webp \
-  --offline
-
-python scripts/test_pulid_adapter.py \
-  --device mps \
-  --reference inputs/noemie.webp \
-  --offline \
-  --apply-sdxl
-```
-
-Le test complet historique reste disponible :
-
-```bash
-python scripts/test_pulid.py \
-  --reference inputs/noemie.webp \
-  --prompt "cinematic portrait of a woman standing in Tokyo at night" \
-  --seed 42 \
-  --strength 0.8
-```
-
-Pour employer ReaXL, fournir seulement le nom sans extension :
-
-```bash
-python scripts/test_pulid.py \
-  --model reaxl_v30 \
-  --method dpmpp_2m_sde \
-  --sigmas karras \
-  --cfg 4.5
-```
-
-La méthode de sampling et la courbe de sigmas sont indépendantes. Sans
-`--model`, `--method` ou `--cfg`, le modèle, le scheduler et le CFG
-préconfigurés restent inchangés ; `--sigmas` vaut `normal` par défaut.
-
-## 10. Génération finale
-
-La CLI installable encode la référence, applique PuLID, génère l'image et écrit
-automatiquement ses métadonnées :
+La CLI est utile pour tester le pipeline indépendamment des interfaces web :
 
 ```bash
 pulid-gen generate \
   --reference inputs/noemie.webp \
   --character noemie \
   --prompt "cinematic portrait of a woman standing in Tokyo at night" \
-  --model reaxl_v30 \
   --method dpmpp_2m_sde \
   --sigmas karras \
   --cfg 4.5 \
@@ -342,203 +312,91 @@ pulid-gen generate \
   --seed 42
 ```
 
-Le checkpoint alternatif doit se trouver dans `PuLID_models/checkpoints/`, à
-côté du modèle configuré ; passer son nom sans `.safetensors`. Omettre
-`--model` utilise RealVisXL par défaut.
+La commande écrit le PNG et un manifeste JSON adjacent dans `outputs/`. Pour
+sélectionner un autre checkpoint, ajoutez `--model NOM_DU_FICHIER` sans
+`.safetensors`.
 
-L'API Python de haut niveau fournit le même cycle de vie :
+## Mémoire GPU et performances
 
-```python
-from pulid_app.config import load_config
-from pulid_app.pipeline import ImageGenerator
+Le serveur garde le pipeline chargé entre les requêtes CUDA utilisant le même
+checkpoint. Les modes suivants permettent d’arbitrer entre vitesse et mémoire,
+notamment lorsque SDXL et BGE-M3 partagent le GPU :
 
-config = load_config()
+| Démarrage | Comportement |
+|---|---|
+| sans option | BGE-M3 et SDXL utilisent le GPU sans offload ; calculs CUDA concurrents |
+| `--serialized-cuda` | conserve les modèles sur le GPU mais sérialise leurs calculs |
+| `--partial` | déplace les encodeurs CLIP et le VAE SDXL sur CPU pendant un embedding |
+| `--full` | décharge tout le pipeline SDXL pendant un embedding |
+| `--CPU` | exécute BGE-M3 sur CPU et laisse SDXL sur le GPU |
 
-with ImageGenerator(config, device="mps") as generator:
-    identity = generator.encode_identity(
-        "inputs/noemie.webp",
-        identity_id="noemie",
-    )
-    result = generator.generate(
-        prompt="cinematic portrait of a woman standing in Tokyo at night",
-        identity=identity,
-        seed=42,
-        steps=20,
-        identity_strength=0.8,
-        sampling_method="dpmpp_2m_sde",
-        sigma_schedule="karras",
-    )
-
-print(result.png_path)
-print(result.json_path)
-```
-
-Sur une machine CUDA disposant d'une VRAM limitée, l'offload SDXL est opt-in :
-
-```bash
-pulid-gen generate \
-  --device cuda \
-  --offload model_cpu_offload \
-  --reference inputs/noemie.webp \
-  --prompt "portrait photo"
-```
-
-`model_cpu_offload` est refusé sur MPS et CPU. La valeur par défaut `none`
-préserve le comportement MPS actuel.
-
-## Benchmark et tests automatisés
-
-Le benchmark exécute des runs froids avec la même seed et sépare neuf durées :
-chargement SDXL, PuLID, InsightFace, extraction d'identité, préparation du
-prompt, diffusion, VAE, sauvegarde et total.
-
-```bash
-pulid-gen benchmark \
-  --reference inputs/noemie.webp \
-  --prompt "cinematic portrait" \
-  --runs 3 \
-  --model reaxl_v30 \
-  --method dpmpp_2m_sde \
-  --sigmas karras \
-  --cfg 4.5
-```
-
-Les catégories pytest sont `unit`, `integration`, `slow` et `gpu` :
-
-```bash
-pytest -m unit
-pytest -m integration
-pytest
-```
-
-Les tests d'intégration sont opt-in afin que les tests normaux ne chargent ni le
-SSD ni les modèles lourds :
-
-```bash
-PULID_RUN_INTEGRATION=1 pytest -m integration -k insightface
-PULID_RUN_SLOW=1 pytest -m 'integration and slow'
-```
-
-## Serveur HTTP pour frontend
-
-Le serveur local expose les routes SDXL `GET /models` et `POST /generate`, ainsi
-que les routes OpenAI compatibles `GET /v1/models` et `POST /v1/embeddings`.
-La génération HTTP renvoie directement un PNG, n'écrit ni output ni JSON, et
-crée ou réutilise le petit cache ArcFace sous `cache/identity/` :
-
-```bash
-uv pip install -e '.[inference,pulid,server,embeddings]'
-pulid-server --device mps --cors-origin http://localhost:3000
-```
-
-Avec `--device cuda`, le pipeline SDXL reste chargé en VRAM entre deux requêtes
-utilisant le même checkpoint. Il est déchargé lorsqu'une requête sélectionne un
-autre modèle ou lorsque le serveur s'arrête. MPS et CPU conservent le nettoyage
-après chaque génération.
-
-Le GGUF BGE-M3 est chargé paresseusement. Le serveur propose cinq modes, sans
-jamais modifier sa fenêtre de 8192 tokens :
-
-- sans option : BGE et SDXL peuvent calculer simultanément sur CUDA, sans
-  offload ; sur Metal, les calculs restent sérialisés ;
-- `--serialized-cuda` : BGE et SDXL sur GPU avec un verrou commun, sans offload ;
-- `--partial` : BGE sur GPU, avec les deux encodeurs CLIP et le VAE SDXL sur CPU
-  pendant les embeddings ; l'UNet et PuLID restent en VRAM ;
-- `--full` : BGE sur GPU, avec le pipeline SDXL entièrement déchargé ;
-- `--CPU` : BGE sur CPU, sans offload SDXL et avec concurrence CPU/GPU permise.
+Exemples :
 
 ```bash
 ./start_pulid_server.sh --partial
-start_windows.bat --partial
-start_windows.bat --serialized-cuda
 ```
 
-Les quatre options sont mutuellement exclusives. Sur CUDA, les calculs sont
-concurrents par défaut ; `--serialized-cuda` rétablit le verrou commun si une
-configuration provoque un OOM pendant les pics mémoire. Avec `--partial` ou
-`--full`, BGE reste chargé entre ses appels puis est fermé avant la prochaine
-génération SDXL.
+```bat
+start_windows.bat --serialized-cuda
+start_windows.bat --CPU
+```
 
-Sous Windows, `install_windows.bat` installe la wheel CUDA 13.0 épinglée de
-`llama-cpp-python`, puis remplace uniquement son backend CPU auxiliaire par la
-DLL portable issue de la wheel officielle de même version. Cela évite
-`0xc000001d` sur les Core i9 sans AVX-512 tout en conservant le calcul BGE sur
-CUDA. Le script vérifie ensuite un chargement et un embedding réels avec le
-contexte complet de 8192 tokens. Les modèles manquants sont préparés juste avant
-ces contrôles par le même CLI que sous macOS.
+Si le mode par défaut provoque une erreur de mémoire CUDA, essayez d’abord
+`--serialized-cuda`, puis `--partial` ou `--full`.
 
-Le contrat complet, les champs multipart, headers de réponse et exemples
-TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
-La bascule de `rp-bot` depuis LM Studio est détaillée dans
-[`RP_BOT_TEXT_EMBEDDING_INTEGRATION.md`](RP_BOT_TEXT_EMBEDDING_INTEGRATION.md).
+## Fichiers et stockage
 
-## 11. Dépannage
+```text
+PuLID/
+├── outputs/                 # images et JSON créés par la CLI
+├── cache/identity/          # petits caches d’identité ArcFace
+└── config/local.yaml        # configuration locale générée, ignorée par Git
 
-Les erreurs CLI affichent leur type et une correction probable :
+<PuLID_models>/
+├── checkpoints/            # checkpoints SDXL locaux
+├── antelopev2/             # modèles InsightFace
+├── text_embedding/         # BGE-M3 au format GGUF
+├── sources/PuLID/          # code officiel épinglé
+├── huggingface/            # cache Hugging Face externe
+├── torch/                  # cache PyTorch externe
+└── other/                  # autres caches lourds
+```
 
-| Erreur | Cause probable | Correction |
-|---|---|---|
-| `ExternalDriveNotMountedError` | `models_root` ou son volume est absent | Rendre le dossier accessible puis relancer `pulid-install` et `pulid-gen doctor` |
-| `ModelNotFoundError` | checkpoint/config/ONNX local absent | Relancer `pulid-install`, ou corriger `config/local.yaml` / le nom fourni à `--model` |
-| `FaceNotDetectedError` | aucun visage exploitable | Utiliser une référence nette, de face et suffisamment grande |
-| `MultipleFacesDetectedError` | plusieurs visages détectés | Ajouter `--face-index N` |
-| `PromptTooLongError` | prompt positif ou négatif supérieur à 255 jetons CLIP utiles | Raccourcir le texte en conservant les concepts prioritaires |
-| `UnsupportedDeviceError` | backend ou offload incompatible | Choisir `mps`, `cuda` ou `cpu`; réserver l'offload à CUDA |
-| `ModelLoadError` | dépendance, provider, poids ou mémoire | Lancer `doctor`, vérifier les versions et réduire la charge mémoire |
-| `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
-| `EmbeddingError` | réponse ou calcul GGUF invalide | Vérifier le GGUF, `llama-cpp-python`, la longueur du texte et relancer |
-| `Failed to load ... llama.dll` | DLL CUDA de PyTorch ou `nvcudart_hybrid64.dll` du pilote NVIDIA absente du chemin Windows | Mettre à jour le pilote NVIDIA puis relancer `install_windows.bat`; le serveur ajoute automatiquement `torch\lib` et le dossier NVIDIA du `DriverStore` à `PATH` et à la recherche sécurisée de DLL |
-| `Windows Error 0xc000001d` | backend CPU auxiliaire de la wheel CUDA compilé avec AVX-512 sur un CPU incompatible | Faire un `git pull`, fermer le serveur et relancer `install_windows.bat`; le script installe automatiquement la DLL CPU portable sans désactiver CUDA |
+Le backend HTTP conserve le PNG en mémoire et le renvoie au client. Il ne crée
+pas d’image ni de manifeste dans `outputs/`. Le frontend ou `rp-bot` est
+responsable de l’enregistrement du PNG reçu.
 
-Contrôles utiles :
+## Dépannage
+
+| Symptôme | Action recommandée |
+|---|---|
+| Catalogue PuLID indisponible dans `rp-bot` | Vérifier que le serveur est démarré et que l’URL se termine par `:12693`, sans `/v1` |
+| Serveur distant inaccessible | Utiliser l’IPv4 privée affichée par `start_windows.bat` et vérifier le profil privé du pare-feu |
+| Aucun visage détecté | Choisir un avatar net, de face et suffisamment grand |
+| Plusieurs visages détectés | Recadrer l’avatar afin qu’un seul visage soit visible |
+| Checkpoint introuvable | Vérifier le fichier sous `<PuLID_models>/checkpoints/`, puis actualiser le catalogue |
+| Erreur de mémoire CUDA | Redémarrer avec `--serialized-cuda`, `--partial` ou `--full` |
+| `llama.dll` ou erreur Windows `0xc000001d` | Mettre à jour le pilote NVIDIA puis relancer `install_windows.bat` |
+| Installation incomplète | Relancer l’installateur, puis exécuter `pulid-gen doctor` |
+
+Le serveur ne possède ni authentification ni gestion d’utilisateurs. Ne
+l’exposez pas à Internet ; limitez son accès à la machine locale ou à un réseau
+privé de confiance.
+
+## Documentation avancée
+
+- [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md) : contrat HTTP,
+  paramètres de génération et exemples d’intégration ;
+- [`RP_BOT_TEXT_EMBEDDING_INTEGRATION.md`](RP_BOT_TEXT_EMBEDDING_INTEGRATION.md) :
+  configuration détaillée de BGE-M3 dans `rp-bot` ;
+- [`PULID_CODEX_IMPLEMENTATION_PLAN.md`](PULID_CODEX_IMPLEMENTATION_PLAN.md) :
+  architecture, phases d’implémentation et validation technique.
+
+Pour exécuter les tests unitaires, sans réseau ni modèle lourd :
 
 ```bash
-pulid-gen doctor
-pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
-python scripts/verify_text_embedding.py --device cuda
+pytest -m unit
 ```
 
-Les dimensions doivent être positives et divisibles par 8, la seed positive ou
-nulle, les steps strictement positifs, et le CFG positif ou nul.
-
-## 12. Emplacement des outputs
-
-Les sorties normales sont écrites sous `outputs/` avec un même stem :
-
-```text
-outputs/
-├── pulid_<timestamp>.png
-├── pulid_<timestamp>.json
-└── benchmarks/
-    ├── benchmark_<timestamp>.json
-    └── runs/
-        ├── benchmark_run_001_<timestamp>.png
-        └── benchmark_run_001_<timestamp>.json
-```
-
-Le manifeste JSON conserve les références, prompts, seed, dimensions, steps,
-CFG, méthode de sampling, force PuLID, checkpoints, device, dtype, VAE intégré
-et durées effectives.
-
-## 13. Emplacement des caches
-
-Seul le petit cache d'identité est conservé dans le projet :
-
-```text
-cache/identity/*.npz
-```
-
-Tous les caches lourds sont forcés sous `models_root` avant les imports ML :
-
-| Variable | Emplacement sous `PuLID_models` |
-|---|---|
-| `HF_HOME` | `huggingface/` |
-| `HUGGINGFACE_HUB_CACHE` | `huggingface/hub/` |
-| `TRANSFORMERS_CACHE` | `huggingface/transformers/` |
-| `TORCH_HOME` | `torch/` |
-| `XDG_CACHE_HOME` | `other/` |
-| `MPLCONFIGDIR` | `other/matplotlib/` |
-
-Il ne faut ni déplacer ni recopier les checkpoints, EVA-CLIP, IDFormer,
-FaceXLib ou AntelopeV2 dans les modules applicatifs ; l'installateur les garde
-tous sous le `models_root` sélectionné.
+AntelopeV2 est distribué pour la recherche non commerciale. Consultez la
+licence InsightFace avant tout autre usage.
