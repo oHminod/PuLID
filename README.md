@@ -384,10 +384,12 @@ Les trois options sont mutuellement exclusives. En mode GPU, SDXL et BGE ne
 calculent jamais simultanément. Avec `--partial` ou `--full`, BGE reste chargé
 entre ses appels puis est fermé avant la prochaine génération SDXL.
 
-Sous Windows, `install_windows.bat` installe ou met à jour la wheel CUDA 13.0 de
-`llama-cpp-python`, réinstalle le projet avec l'extra `embeddings`, puis vérifie
-le backend CUDA et la présence de
-`PuLID_models\text_embedding\bge-m3-Q8_0.gguf`.
+Sous Windows, `install_windows.bat` installe la wheel CUDA 13.0 épinglée de
+`llama-cpp-python`, puis remplace uniquement son backend CPU auxiliaire par la
+DLL portable issue de la wheel officielle de même version. Cela évite
+`0xc000001d` sur les Core i9 sans AVX-512 tout en conservant le calcul BGE sur
+CUDA. Le script vérifie ensuite un chargement et un embedding réels avec le
+contexte complet de 8192 tokens ; aucun modèle n'est téléchargé.
 
 Le contrat complet, les champs multipart, headers de réponse et exemples
 TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
@@ -410,12 +412,14 @@ Les erreurs CLI affichent leur type et une correction probable :
 | `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
 | `EmbeddingError` | réponse ou calcul GGUF invalide | Vérifier le GGUF, `llama-cpp-python`, la longueur du texte et relancer |
 | `Failed to load ... llama.dll` | DLL CUDA de PyTorch ou `nvcudart_hybrid64.dll` du pilote NVIDIA absente du chemin Windows | Mettre à jour le pilote NVIDIA puis relancer `install_windows.bat`; le serveur ajoute automatiquement `torch\lib` et le dossier NVIDIA du `DriverStore` à `PATH` et à la recherche sécurisée de DLL |
+| `Windows Error 0xc000001d` | backend CPU auxiliaire de la wheel CUDA compilé avec AVX-512 sur un CPU incompatible | Faire un `git pull`, fermer le serveur et relancer `install_windows.bat`; le script installe automatiquement la DLL CPU portable sans désactiver CUDA |
 
 Contrôles utiles :
 
 ```bash
 pulid-gen doctor
 pulid-gen inspect-models --show-cache-env --fail-on-internal-cache
+python scripts/verify_text_embedding.py --device cuda
 ```
 
 Les dimensions doivent être positives et divisibles par 8, la seed positive ou
