@@ -15,9 +15,9 @@ ArcFace est créé ou réutilisé sous `cache/identity/`, avec une clé dérivé
 pixels décodés et du nom du personnage. Le frontend reste responsable du
 téléchargement ou du stockage du PNG reçu.
 
-Le modèle GGUF de texte est chargé paresseusement depuis `models_root` et reste
-en mémoire RAM après le premier appel. Il est forcé sur CPU et ne consomme
-aucune VRAM. Les embeddings ne créent aucun fichier dans le projet.
+Le modèle GGUF de texte est chargé paresseusement depuis `models_root`. Il
+utilise Metal/CUDA par défaut, ou le CPU avec l'option de démarrage `--CPU`.
+Les embeddings ne créent aucun fichier dans le projet.
 
 ## Démarrage du serveur
 
@@ -47,6 +47,18 @@ pulid-server \
 autorisée. Le serveur n'implémente pas d'authentification et doit rester lié à
 `127.0.0.1`, sauf si une protection réseau adaptée est ajoutée.
 
+La politique mémoire BGE/SDXL se choisit au démarrage :
+
+```text
+aucune option  BGE GPU, aucun offload SDXL
+--partial      BGE GPU, CLIP et VAE SDXL déplacés sur CPU
+--full         BGE GPU, pipeline SDXL entièrement déchargé
+--CPU          BGE CPU, aucun offload SDXL
+```
+
+Ces options sont mutuellement exclusives. `start_pulid_server.sh` et
+`start_windows.bat` transmettent leurs arguments au serveur.
+
 URL de base utilisée dans les exemples :
 
 ```text
@@ -68,17 +80,17 @@ text_embedding:
   threads: 0  # automatique
 ```
 
-`n_gpu_layers` est fixé à `0`, `offload_kqv` à `false` et `op_offload` à
-`false` dans le code ; ces valeurs ne peuvent pas être modifiées par une requête
-HTTP. BGE-M3 étant un encodeur bidirectionnel, `batch_size` doit être supérieur
+En mode GPU, `n_gpu_layers=-1`, `offload_kqv=true`, `op_offload=true` et
+`flash_attn=true`. Avec `--CPU`, ces offloads sont désactivés. Ces valeurs ne
+peuvent pas être modifiées par une requête HTTP. BGE-M3 étant un encodeur
+bidirectionnel, `batch_size` doit être supérieur
 ou égal à `context_size` : llama.cpp ne peut pas découper une séquence
 d'embedding en micro-lots indépendants. La configuration est refusée au
 démarrage si cette contrainte n'est pas respectée, au lieu de laisser
-llama.cpp interrompre nativement Python sur une entrée longue. Avec `threads: 0`,
-`llama-cpp-python` choisit automatiquement les threads : tous les CPU logiques
-pour le traitement par lots utilisé par les embeddings. Une valeur positive
-permet de limiter manuellement cette charge si le serveur doit préserver du CPU
-pour d'autres tâches.
+llama.cpp interrompre nativement Python sur une entrée longue. La fenêtre reste
+à 8192 tokens dans les quatre modes. Avec `--CPU` et `threads: 0`,
+`llama-cpp-python` utilise tous les CPU logiques pour le traitement par lots ;
+une valeur positive permet de limiter manuellement cette charge.
 
 ### Lister le modèle d'embedding
 
@@ -552,7 +564,8 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 - une seule génération est exécutée à la fois ; une requête concurrente attend
   la fin de la précédente afin de protéger la mémoire MPS/CUDA ;
 - un seul lot d'embeddings est calculé à la fois ;
-- un embedding CPU peut être calculé en parallèle d'une génération SDXL ;
+- les embeddings GPU et SDXL partagent un verrou et ne calculent jamais en
+  parallèle ; `--CPU` autorise au contraire un embedding CPU pendant SDXL ;
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
 - l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
@@ -561,8 +574,8 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
   autre modèle ferme d'abord le générateur précédent afin de libérer sa VRAM ;
 - sur MPS et CPU, les composants du pipeline sont fermés après chaque réponse ;
 - le générateur CUDA encore actif est fermé à l'arrêt du serveur ;
-- le modèle GGUF est chargé au premier `POST /v1/embeddings`, conservé en RAM
-  puis fermé à l'arrêt du serveur ;
+- sans option et avec `--CPU`, le GGUF reste chargé jusqu'à l'arrêt ; avec
+  `--partial` ou `--full`, il est également fermé avant une génération SDXL ;
 - aucun PNG ni manifeste JSON n'est créé par l'application serveur.
 
 Une génération peut prendre plusieurs dizaines de secondes. Le proxy ou le

@@ -12,6 +12,7 @@ set "MPLCONFIGDIR=%PULID_MODELS_ROOT%\other\matplotlib"
 set "UV_CACHE_DIR=%PULID_MODELS_ROOT%\other\uv-windows"
 set "UV_PYTHON_INSTALL_DIR=%PULID_MODELS_ROOT%\other\uv-python-windows"
 set "NO_ALBUMENTATIONS_UPDATE=1"
+set "LLAMA_CPP_CUDA_INDEX=https://abetlen.github.io/llama-cpp-python/whl/cu130"
 
 cd /d "%PROJECT_DIR%"
 
@@ -76,20 +77,20 @@ echo Installation de PyTorch 2.13 avec CUDA 13.0...
 "%UV_EXE%" pip install --python "%VENV_PYTHON%" "torch==2.13.0" "torchvision==0.28.0" --index-url "https://download.pytorch.org/whl/cu130"
 if errorlevel 1 goto :dependency_error
 
-echo Installation du runtime GGUF CPU pour les embeddings...
-"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/cpu" --only-binary llama-cpp-python "llama-cpp-python>=0.3.16,<0.4"
+echo Installation du runtime GGUF CUDA 13.0 pour les embeddings...
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary llama-cpp-python --reinstall-package llama-cpp-python "llama-cpp-python>=0.3.16,<0.4"
 if errorlevel 1 goto :dependency_error
 
 echo Installation de PuLID et du serveur HTTP...
-"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/cpu" --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
 if errorlevel 1 goto :dependency_error
 
 echo Verification de CUDA...
 "%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available(), 'CUDA indisponible : mettez a jour le pilote NVIDIA'; print('CUDA OK :', torch.cuda.get_device_name(0), '- PyTorch', torch.__version__)"
 if errorlevel 1 goto :cuda_error
 
-echo Verification du runtime GGUF CPU...
-"%VENV_PYTHON%" -c "import llama_cpp; print('llama-cpp-python OK :', llama_cpp.__version__)"
+echo Verification du runtime GGUF CUDA...
+"%VENV_PYTHON%" -c "import llama_cpp; info = llama_cpp.llama_print_system_info().decode(); assert 'CUDA' in info, 'Backend CUDA absent de llama-cpp-python'; print('llama-cpp-python CUDA OK :', llama_cpp.__version__)"
 if errorlevel 1 goto :dependency_error
 
 echo Verification de l'installation et des modeles...
@@ -123,7 +124,7 @@ goto :error_exit
 echo [ERREUR] Installation des dependances impossible.
 echo Si l'erreur concerne InsightFace, installez Microsoft C++ Build Tools
 echo avec la charge de travail "Desktop development with C++", puis relancez ce script.
-echo Le runtime GGUF doit provenir de la wheel CPU precompilee indiquee par le script.
+echo Le runtime GGUF doit provenir de la wheel CUDA 13.0 indiquee par le script.
 goto :error_exit
 
 :cuda_error

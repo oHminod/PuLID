@@ -1,4 +1,4 @@
-"""Embeddings de texte GGUF locaux, exécutés exclusivement sur CPU."""
+"""Embeddings de texte GGUF locaux sur CPU, Metal ou CUDA."""
 
 from __future__ import annotations
 
@@ -15,12 +15,29 @@ from pulid_app.exceptions import EmbeddingError, ModelLoadError, ModelNotFoundEr
 MAX_EMBEDDING_INPUTS = 64
 MAX_EMBEDDING_INPUT_CHARS = 32_000
 MAX_EMBEDDING_TOTAL_CHARS = 128_000
+SUPPORTED_EMBEDDING_DEVICES = frozenset({"cpu", "cuda", "mps"})
 
 
-def load_llama_cpp_embedding_model(config: TextEmbeddingConfig) -> Any:
-    """Charge un GGUF local avec llama.cpp sans utiliser le GPU ni le réseau."""
+def _embedding_device_type(device: str) -> str:
+    normalized = device.strip().casefold().split(":", maxsplit=1)[0]
+    if normalized not in SUPPORTED_EMBEDDING_DEVICES:
+        supported = ", ".join(sorted(SUPPORTED_EMBEDDING_DEVICES))
+        raise ValueError(
+            f"Device d'embedding inconnu : {device!r}. Valeurs acceptées : {supported}."
+        )
+    return normalized
+
+
+def load_llama_cpp_embedding_model(
+    config: TextEmbeddingConfig,
+    *,
+    device: str = "cpu",
+) -> Any:
+    """Charge un GGUF local avec llama.cpp, sans accès réseau."""
 
     checkpoint = _require_checkpoint(config.checkpoint)
+    device_type = _embedding_device_type(device)
+    uses_accelerator = device_type in {"cuda", "mps"}
     try:
         from llama_cpp import Llama
     except ImportError as exc:
@@ -32,15 +49,15 @@ def load_llama_cpp_embedding_model(config: TextEmbeddingConfig) -> Any:
     llama_options: dict[str, Any] = {
         "model_path": str(checkpoint),
         "embedding": True,
-        "n_gpu_layers": 0,
+        "n_gpu_layers": -1 if uses_accelerator else 0,
         "n_ctx": config.context_size,
         "n_batch": config.context_size,
         # Un encodeur bidirectionnel ne peut pas découper une séquence en
         # micro-lots : llama.cpp exige n_ubatch >= nombre de tokens.
         "n_ubatch": config.batch_size,
-        "offload_kqv": False,
-        "op_offload": False,
-        "flash_attn": False,
+        "offload_kqv": uses_accelerator,
+        "op_offload": uses_accelerator,
+        "flash_attn": uses_accelerator,
         "use_mmap": True,
         "verbose": False,
     }
@@ -54,8 +71,8 @@ def load_llama_cpp_embedding_model(config: TextEmbeddingConfig) -> Any:
         )
     except Exception as exc:
         raise ModelLoadError(
-            f"Impossible de charger le modèle d'embedding GGUF sur CPU : {checkpoint}. "
-            "Vérifiez le fichier et l'installation de llama-cpp-python."
+            f"Impossible de charger le modèle d'embedding GGUF sur {device_type.upper()} : "
+            f"{checkpoint}. Vérifiez le fichier et le backend de llama-cpp-python."
         ) from exc
 
 
@@ -190,17 +207,17 @@ def _normalized_response(
 
 
 class TextEmbeddingService:
-    """Conserve un unique modèle CPU paresseux et sérialise son utilisation."""
+    """Conserve un unique modèle GGUF paresseux et sérialise son utilisation."""
 
     def __init__(
         self,
         config: TextEmbeddingConfig | None,
         *,
-        model_factory: Callable[
-            [TextEmbeddingConfig], Any
-        ] = load_llama_cpp_embedding_model,
+        device: str = "cpu",
+        model_factory: Callable[..., Any] = load_llama_cpp_embedding_model,
     ) -> None:
         self.config = config
+        self.device = _embedding_device_type(device)
         self.model_factory = model_factory
         self._model: Any | None = None
         self._lock = Lock()
@@ -227,8 +244,12 @@ class TextEmbeddingService:
 
     def _get_model(self, config: TextEmbeddingConfig) -> Any:
         if self._model is None:
-            self._model = self.model_factory(config)
+            self._model = self.model_factory(config, device=self.device)
         return self._model
+
+    @property
+    def uses_accelerator(self) -> bool:
+        return self.device in {"cuda", "mps"}
 
     def create_embedding(
         self,

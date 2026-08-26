@@ -204,6 +204,75 @@ def test_cuda_default_strategy_keeps_eager_pipeline_transfer(
     assert model.pipeline.offload_calls == []
 
 
+def test_partial_embedding_offload_moves_only_clip_and_vae(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+
+    class Component:
+        def __init__(self) -> None:
+            self.to_calls: list[str] = []
+
+        def to(self, device: str):
+            self.to_calls.append(device)
+            return self
+
+    class PartialOffloadPipeline(FakePipeline):
+        def __init__(self) -> None:
+            super().__init__()
+            self.text_encoder = Component()
+            self.text_encoder_2 = Component()
+            self.vae = Component()
+            self.unet = Component()
+
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="cuda",
+    )
+    monkeypatch.setattr(
+        model,
+        "_import_ml",
+        lambda: (_fake_torch(), PartialOffloadPipeline),
+    )
+    model.load()
+    assert model.pipeline is not None
+    pipeline = model.pipeline
+
+    assert model.partial_offload_for_embedding() is True
+    assert model.partial_offload_for_embedding() is False
+    assert pipeline.text_encoder.to_calls == ["cpu"]
+    assert pipeline.text_encoder_2.to_calls == ["cpu"]
+    assert pipeline.vae.to_calls == ["cpu"]
+    assert pipeline.unet.to_calls == []
+
+    assert model.restore_after_embedding() is True
+    assert model.restore_after_embedding() is False
+    assert pipeline.text_encoder.to_calls == ["cpu", "cuda"]
+    assert pipeline.text_encoder_2.to_calls == ["cpu", "cuda"]
+    assert pipeline.vae.to_calls == ["cpu", "cuda"]
+    assert pipeline.unet.to_calls == []
+
+
+def test_partial_embedding_offload_rejects_diffusers_cpu_offload_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkpoint, config_dir = _create_local_sdxl_files(tmp_path)
+    model = SDXLModel(
+        checkpoint,
+        config_dir,
+        models_root=tmp_path,
+        device="cuda",
+        offload_strategy="model_cpu_offload",
+    )
+    monkeypatch.setattr(model, "_import_ml", lambda: (_fake_torch(), FakePipeline))
+    model.load()
+
+    with pytest.raises(SDXLLoadError, match="offload_strategy=none"):
+        model.partial_offload_for_embedding()
+
+
 @pytest.mark.parametrize("device", ["mps", "cpu"])
 def test_model_cpu_offload_is_rejected_without_cuda(
     tmp_path: Path, device: str

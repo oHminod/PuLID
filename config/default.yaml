@@ -25,11 +25,11 @@ text_embedding:
   checkpoint: text_embedding/bge-m3-Q8_0.gguf
   model_id: text-embedding-bge-m3
   dimensions: 1024
-  # Le GGUF reste volontairement sur CPU afin de réserver la VRAM à SDXL.
+  # La fenêtre reste identique en modes CPU, Metal et CUDA.
   context_size: 8192
   # Un encodeur bidirectionnel exige batch_size >= context_size dans llama.cpp.
   batch_size: 8192
-  # 0 = automatique (tous les CPU logiques pour le traitement par lots).
+  # En mode --CPU : 0 = tous les CPU logiques pour le traitement par lots.
   threads: 0
 
 outputs_dir: ./outputs

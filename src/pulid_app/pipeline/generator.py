@@ -560,6 +560,30 @@ class ImageGenerator:
             save_duration_seconds=save_duration,
         )
 
+    def partial_offload_sdxl_for_embedding(self) -> bool:
+        """Libère CLIP et le VAE si le pipeline SDXL est actuellement chargé."""
+
+        if self._sdxl is None:
+            return False
+        return self._sdxl.partial_offload_for_embedding()
+
+    def restore_sdxl_after_embedding(self) -> bool:
+        """Restaure les composants SDXL précédemment déplacés sur CPU."""
+
+        if self._sdxl is None:
+            return False
+        return self._sdxl.restore_after_embedding()
+
+    def full_offload_sdxl_for_embedding(self) -> bool:
+        """Décharge uniquement SDXL ; PuLID et InsightFace restent réutilisables."""
+
+        sdxl = self._sdxl
+        self._sdxl = None
+        if sdxl is None:
+            return False
+        sdxl.close()
+        return True
+
     def close(self) -> None:
         """Libère les modèles détenus ; les appels répétés sont sans effet."""
 

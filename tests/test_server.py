@@ -5,14 +5,16 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 import threading
+import time
 from types import SimpleNamespace
 
 import httpx
 from PIL import Image
 import pytest
 
-from pulid_app.exceptions import PromptTooLongError
+from pulid_app.exceptions import PromptTooLongError, UnsupportedDeviceError
 from pulid_app.server import (
+    build_parser,
     create_app,
     generated_filename,
     resolve_generation_seed,
@@ -74,6 +76,10 @@ class FakeMemoryGenerator:
         self.encode_kwargs = None
         self.generate_kwargs = None
         self.closed = False
+        self.partial_offload_calls = 0
+        self.restore_calls = 0
+        self.full_offload_calls = 0
+        self.partially_offloaded = False
         self.__class__.instances.append(self)
 
     def encode_identity_memory(self, image, **kwargs):
@@ -90,12 +96,31 @@ class FakeMemoryGenerator:
     def close(self) -> None:
         self.closed = True
 
+    def partial_offload_sdxl_for_embedding(self) -> bool:
+        if self.partially_offloaded:
+            return False
+        self.partial_offload_calls += 1
+        self.partially_offloaded = True
+        return True
+
+    def restore_sdxl_after_embedding(self) -> bool:
+        if not self.partially_offloaded:
+            return False
+        self.restore_calls += 1
+        self.partially_offloaded = False
+        return True
+
+    def full_offload_sdxl_for_embedding(self) -> bool:
+        self.full_offload_calls += 1
+        return True
+
 
 class FakeEmbeddingModel:
     instances: list["FakeEmbeddingModel"] = []
 
-    def __init__(self, config) -> None:
+    def __init__(self, config, *, device: str = "cpu") -> None:
         self.config = config
+        self.device = device
         self.calls = []
         self.closed = False
         self.__class__.instances.append(self)
@@ -124,6 +149,7 @@ def _app(
     tmp_path: Path,
     *,
     device: str | None = None,
+    embedding_memory_mode: str = "cpu",
     cors_origins: tuple[str, ...] = (),
 ):
     config, _models = _write_config(tmp_path)
@@ -132,6 +158,7 @@ def _app(
     return create_app(
         config,
         device=device,
+        embedding_memory_mode=embedding_memory_mode,
         generator_factory=FakeMemoryGenerator,
         embedding_model_factory=FakeEmbeddingModel,
         now_factory=lambda: datetime(2026, 8, 13, 20, 9, 47, 123456, tzinfo=timezone.utc),
@@ -471,6 +498,7 @@ def test_cpu_embedding_can_run_during_sdxl_generation(tmp_path: Path) -> None:
     ConcurrentEmbeddingModel.instances.clear()
     app = create_app(
         config,
+        embedding_memory_mode="cpu",
         generator_factory=ConcurrentGenerator,
         embedding_model_factory=ConcurrentEmbeddingModel,
     )
@@ -509,6 +537,186 @@ def test_cpu_embedding_can_run_during_sdxl_generation(tmp_path: Path) -> None:
 
     assert generation_response.status_code == 200
     assert embedding_response.status_code == 200
+
+
+def test_embedding_memory_cli_modes_are_exclusive() -> None:
+    parser = build_parser()
+
+    assert parser.parse_args([]).embedding_memory_mode == "none"
+    assert parser.parse_args(["--partial"]).embedding_memory_mode == "partial"
+    assert parser.parse_args(["--full"]).embedding_memory_mode == "full"
+    assert parser.parse_args(["--CPU"]).embedding_memory_mode == "cpu"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--partial", "--full"])
+
+
+def test_gpu_embedding_modes_require_an_accelerator(tmp_path: Path) -> None:
+    config, _models = _write_config(tmp_path)
+
+    with pytest.raises(UnsupportedDeviceError, match="Utilisez --CPU"):
+        create_app(config, device="cpu", embedding_memory_mode="none")
+
+
+def test_cpu_mode_forces_embedding_to_cpu_without_sdxl_offload(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda", embedding_memory_mode="cpu")
+    assert _generate_request(app).status_code == 200
+
+    embedding = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+    )
+
+    assert embedding.status_code == 200
+    assert FakeEmbeddingModel.instances[0].device == "cpu"
+    generator = FakeMemoryGenerator.instances[0]
+    assert generator.partial_offload_calls == 0
+    assert generator.full_offload_calls == 0
+
+
+def test_default_gpu_mode_keeps_sdxl_and_bge_loaded_together(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda", embedding_memory_mode="none")
+
+    generation = _generate_request(app)
+    embedding = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+    )
+
+    assert generation.status_code == 200
+    assert embedding.status_code == 200
+    generator = FakeMemoryGenerator.instances[0]
+    engine = FakeEmbeddingModel.instances[0]
+    assert engine.device == "cuda"
+    assert engine.closed is False
+    assert generator.closed is False
+    assert generator.partial_offload_calls == 0
+    assert generator.full_offload_calls == 0
+
+
+def test_partial_mode_parks_sdxl_until_next_generation(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda", embedding_memory_mode="partial")
+    assert _generate_request(app).status_code == 200
+    generator = FakeMemoryGenerator.instances[0]
+
+    first_embedding = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+    )
+    second_embedding = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "encore"},
+    )
+    engine = FakeEmbeddingModel.instances[0]
+
+    assert first_embedding.status_code == 200
+    assert second_embedding.status_code == 200
+    assert generator.partial_offload_calls == 1
+    assert generator.restore_calls == 0
+    assert engine.closed is False
+
+    assert _generate_request(app).status_code == 200
+    assert generator.restore_calls == 1
+    assert engine.closed is True
+    assert generator.closed is False
+
+
+def test_full_mode_unloads_only_sdxl_until_next_generation(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="cuda", embedding_memory_mode="full")
+    assert _generate_request(app).status_code == 200
+    generator = FakeMemoryGenerator.instances[0]
+
+    embedding = _request(
+        app,
+        "POST",
+        "/v1/embeddings",
+        json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+    )
+    engine = FakeEmbeddingModel.instances[0]
+
+    assert embedding.status_code == 200
+    assert generator.full_offload_calls == 1
+    assert generator.restore_calls == 0
+    assert generator.closed is False
+
+    assert _generate_request(app).status_code == 200
+    assert engine.closed is True
+    assert generator.restore_calls == 0
+    assert generator.closed is False
+
+
+def test_gpu_embedding_is_serialized_with_sdxl_generation(tmp_path: Path) -> None:
+    state_lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def occupy_accelerator() -> None:
+        nonlocal active, peak
+        with state_lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with state_lock:
+            active -= 1
+
+    class SerializedGenerator(FakeMemoryGenerator):
+        def generate_in_memory(self, **kwargs):
+            occupy_accelerator()
+            return super().generate_in_memory(**kwargs)
+
+    class SerializedEmbeddingModel(FakeEmbeddingModel):
+        def create_embedding(self, inputs):
+            occupy_accelerator()
+            return super().create_embedding(inputs)
+
+    config, _models = _write_config(tmp_path)
+    SerializedGenerator.instances.clear()
+    SerializedEmbeddingModel.instances.clear()
+    app = create_app(
+        config,
+        device="cuda",
+        embedding_memory_mode="none",
+        generator_factory=SerializedGenerator,
+        embedding_model_factory=SerializedEmbeddingModel,
+    )
+
+    async def send_concurrently():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            generation = asyncio.create_task(
+                client.post(
+                    "/generate",
+                    files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+                    data={
+                        "character": "noemie",
+                        "prompt": "portrait",
+                        "model": "realvisxl",
+                    },
+                )
+            )
+            embedding = asyncio.create_task(
+                client.post(
+                    "/v1/embeddings",
+                    json={"model": "text-embedding-bge-m3", "input": "bonjour"},
+                )
+            )
+            return await asyncio.gather(generation, embedding)
+
+    generation_response, embedding_response = asyncio.run(send_concurrently())
+
+    assert generation_response.status_code == 200
+    assert embedding_response.status_code == 200
+    assert peak == 1
 
 
 def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path) -> None:
@@ -732,7 +940,11 @@ def test_generate_reports_long_prompt_as_a_422_client_error(tmp_path: Path) -> N
             )
 
     config, _models = _write_config(tmp_path)
-    app = create_app(config, generator_factory=LongPromptRejectingGenerator)
+    app = create_app(
+        config,
+        embedding_memory_mode="cpu",
+        generator_factory=LongPromptRejectingGenerator,
+    )
 
     response = _request(
         app,

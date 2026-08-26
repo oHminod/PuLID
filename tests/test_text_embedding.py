@@ -74,6 +74,34 @@ def test_llama_cpp_factory_uses_runtime_thread_defaults(
     assert "n_threads_batch" not in captured
 
 
+@pytest.mark.parametrize("device", ["mps", "cuda"])
+def test_llama_cpp_factory_offloads_all_layers_without_reducing_context(
+    tmp_path: Path,
+    monkeypatch,
+    device: str,
+) -> None:
+    checkpoint = tmp_path / "bge-m3-Q8_0.gguf"
+    checkpoint.touch()
+    captured = {}
+
+    def fake_llama(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "llama_cpp", SimpleNamespace(Llama=fake_llama))
+    config = TextEmbeddingConfig(checkpoint=checkpoint)
+
+    load_llama_cpp_embedding_model(config, device=device)
+
+    assert captured["n_gpu_layers"] == -1
+    assert captured["offload_kqv"] is True
+    assert captured["op_offload"] is True
+    assert captured["flash_attn"] is True
+    assert captured["n_ctx"] == 8192
+    assert captured["n_batch"] == 8192
+    assert captured["n_ubatch"] == 8192
+
+
 def test_embedding_service_rejects_token_overflow_without_truncating(
     tmp_path: Path,
 ) -> None:
@@ -93,7 +121,7 @@ def test_embedding_service_rejects_token_overflow_without_truncating(
     engine = TokenOverflowEngine()
     service = TextEmbeddingService(
         TextEmbeddingConfig(checkpoint=checkpoint, context_size=128),
-        model_factory=lambda _config: engine,
+        model_factory=lambda _config, **_kwargs: engine,
     )
 
     with pytest.raises(ValueError, match="fenêtre configurée est de 128 jetons"):

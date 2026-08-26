@@ -128,6 +128,8 @@ class FakeSDXL:
         self.sampling_calls: list[tuple[str | None, str | None]] = []
         self.generate_calls: list[dict] = []
         self.close_calls = 0
+        self.partial_offload_calls = 0
+        self.restore_calls = 0
 
     def load(self) -> "FakeSDXL":
         self.load_calls += 1
@@ -160,6 +162,14 @@ class FakeSDXL:
     def close(self) -> None:
         self.close_calls += 1
 
+    def partial_offload_for_embedding(self) -> bool:
+        self.partial_offload_calls += 1
+        return True
+
+    def restore_after_embedding(self) -> bool:
+        self.restore_calls += 1
+        return True
+
 
 def _generator_with_fakes(
     tmp_path: Path,
@@ -183,6 +193,21 @@ def test_constructor_keeps_models_lazy(tmp_path: Path) -> None:
     assert generator._identity_encoder is None
     assert generator._adapter is None
     assert generator._sdxl is None
+
+
+def test_embedding_offload_controls_only_the_sdxl_lifecycle(tmp_path: Path) -> None:
+    generator, encoder, adapter, sdxl = _generator_with_fakes(tmp_path)
+
+    assert generator.partial_offload_sdxl_for_embedding() is True
+    assert generator.restore_sdxl_after_embedding() is True
+    assert sdxl.partial_offload_calls == 1
+    assert sdxl.restore_calls == 1
+    assert generator.full_offload_sdxl_for_embedding() is True
+    assert sdxl.close_calls == 1
+    assert generator._sdxl is None
+    assert generator._adapter is adapter
+    assert generator._identity_encoder is encoder
+    assert generator.full_offload_sdxl_for_embedding() is False
 
 
 def test_encode_identity_reuses_generic_cache_and_prepares_pulid(tmp_path: Path) -> None:

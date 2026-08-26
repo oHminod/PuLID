@@ -18,4 +18,5 @@ exec pulid-server \
   --host 127.0.0.1 \
   --port 12693 \
   --device mps \
-  --cors-origin http://localhost:8800
+  --cors-origin http://localhost:8800 \
+  "$@"

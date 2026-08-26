@@ -63,6 +63,7 @@ DEFAULT_HEIGHT = 1024
 DEFAULT_IDENTITY_STRENGTH = 0.8
 MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 MAX_SEED = 2**63 - 1
+EMBEDDING_MEMORY_MODES = frozenset({"none", "partial", "full", "cpu"})
 
 
 @dataclass(frozen=True)
@@ -331,6 +332,36 @@ class GenerationService:
 
         self._close_cuda_generator()
 
+    def prepare_for_embedding(self, memory_mode: str) -> bool:
+        """Applique à SDXL la politique choisie avant de charger BGE sur GPU."""
+
+        generator = self._cuda_generator
+        if generator is None or memory_mode in {"none", "cpu"}:
+            return False
+        method_name = {
+            "partial": "partial_offload_sdxl_for_embedding",
+            "full": "full_offload_sdxl_for_embedding",
+        }[memory_mode]
+        method = getattr(generator, method_name, None)
+        if not callable(method):
+            raise ModelLoadError(
+                f"Le générateur ne prend pas en charge la politique BGE {memory_mode!r}."
+            )
+        return bool(method())
+
+    def restore_after_embedding(self, memory_mode: str) -> bool:
+        """Restaure l'offload partiel avant la prochaine génération SDXL."""
+
+        generator = self._cuda_generator
+        if generator is None or memory_mode != "partial":
+            return False
+        restore = getattr(generator, "restore_sdxl_after_embedding", None)
+        if not callable(restore):
+            raise ModelLoadError(
+                "Le générateur ne sait pas restaurer l'offload SDXL partiel."
+            )
+        return bool(restore())
+
     def generate(
         self,
         *,
@@ -463,6 +494,30 @@ def _embedding_http_error(exc: BaseException) -> HTTPException:
     )
 
 
+def _embedding_runtime_device(
+    config: AppConfig,
+    *,
+    server_device: str | None,
+    memory_mode: str,
+) -> str:
+    if memory_mode not in EMBEDDING_MEMORY_MODES:
+        supported = ", ".join(sorted(EMBEDDING_MEMORY_MODES))
+        raise ValueError(
+            f"Mode mémoire BGE inconnu : {memory_mode!r}. Valeurs acceptées : {supported}."
+        )
+    if memory_mode == "cpu":
+        return "cpu"
+
+    selected = (server_device or config.device.preferred).strip().casefold()
+    device_type = selected.split(":", maxsplit=1)[0]
+    if device_type not in {"cuda", "mps"}:
+        raise UnsupportedDeviceError(
+            "BGE sur GPU exige un serveur CUDA ou MPS. Utilisez --CPU pour "
+            "exécuter les embeddings sur le processeur."
+        )
+    return device_type
+
+
 def create_app(
     config_path: str | Path | None = None,
     *,
@@ -471,15 +526,22 @@ def create_app(
     offload_strategy: str | None = None,
     generator_factory: Callable[..., Any] = ImageGenerator,
     embedding_model_factory: Callable[..., Any] = load_llama_cpp_embedding_model,
+    embedding_memory_mode: str = "none",
     now_factory: Callable[[], datetime] | None = None,
     random_seed: Callable[[], int] | None = None,
     cors_origins: Sequence[str] = (),
 ) -> FastAPI:
-    """Construit l'application et sérialise les générations lourdes."""
+    """Construit l'application et coordonne SDXL avec BGE CPU ou GPU."""
 
     config = load_config(config_path)
     require_models_root(config.models_root)
     configure_external_model_caches(config.models_root)
+    normalized_embedding_mode = embedding_memory_mode.strip().casefold()
+    embedding_device = _embedding_runtime_device(
+        config,
+        server_device=device,
+        memory_mode=normalized_embedding_mode,
+    )
     service = GenerationService(
         config,
         device=device,
@@ -491,8 +553,14 @@ def create_app(
     )
     embedding_service = TextEmbeddingService(
         config.text_embedding,
+        device=embedding_device,
         model_factory=embedding_model_factory,
     )
+
+    def prepare_generation_for_gpu() -> None:
+        if normalized_embedding_mode in {"partial", "full"}:
+            embedding_service.close()
+            service.restore_after_embedding(normalized_embedding_mode)
 
     def close_services() -> None:
         try:
@@ -517,6 +585,7 @@ def create_app(
     )
     app.state.generation_service = service
     app.state.text_embedding_service = embedding_service
+    app.state.embedding_memory_mode = normalized_embedding_mode
     if cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -534,6 +603,7 @@ def create_app(
         )
     generation_lock = asyncio.Lock()
     embedding_lock = asyncio.Lock()
+    accelerator_lock = asyncio.Lock()
 
     @app.get("/models")
     async def models() -> dict[str, Any]:
@@ -560,6 +630,17 @@ def create_app(
     async def create_embeddings(request: OpenAIEmbeddingRequest) -> dict[str, Any]:
         try:
             async with embedding_lock:
+                if embedding_service.uses_accelerator:
+                    async with accelerator_lock:
+                        await run_in_threadpool(
+                            service.prepare_for_embedding,
+                            normalized_embedding_mode,
+                        )
+                        return await run_in_threadpool(
+                            embedding_service.create_embedding,
+                            model=request.model,
+                            input_value=request.input,
+                        )
                 return await run_in_threadpool(
                     embedding_service.create_embedding,
                     model=request.model,
@@ -588,21 +669,32 @@ def create_app(
     ) -> Response:
         try:
             async with generation_lock:
-                payload = await run_in_threadpool(
-                    service.generate,
-                    reference_content=reference,
-                    character=character,
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    clip_skip_2=clip_skip_2,
-                    model=model,
-                    cfg=cfg,
-                    steps=steps,
-                    strength=strength,
-                    method=method,
-                    sigmas=sigmas,
-                    seed=seed,
-                )
+                generation_kwargs = {
+                    "reference_content": reference,
+                    "character": character,
+                    "prompt": prompt,
+                    "negative_prompt": negative_prompt,
+                    "clip_skip_2": clip_skip_2,
+                    "model": model,
+                    "cfg": cfg,
+                    "steps": steps,
+                    "strength": strength,
+                    "method": method,
+                    "sigmas": sigmas,
+                    "seed": seed,
+                }
+                if embedding_service.uses_accelerator:
+                    async with accelerator_lock:
+                        await run_in_threadpool(prepare_generation_for_gpu)
+                        payload = await run_in_threadpool(
+                            service.generate,
+                            **generation_kwargs,
+                        )
+                else:
+                    payload = await run_in_threadpool(
+                        service.generate,
+                        **generation_kwargs,
+                    )
         except (PuLIDAppError, OSError, RuntimeError, ValueError) as exc:
             raise _http_error(exc) from exc
 
@@ -633,6 +725,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--offload",
         choices=("none", "model_cpu_offload"),
     )
+    embedding_group = parser.add_mutually_exclusive_group()
+    embedding_group.add_argument(
+        "--partial",
+        dest="embedding_memory_mode",
+        action="store_const",
+        const="partial",
+        help="BGE sur GPU ; déplace CLIP et le VAE SDXL sur CPU pendant son usage.",
+    )
+    embedding_group.add_argument(
+        "--full",
+        dest="embedding_memory_mode",
+        action="store_const",
+        const="full",
+        help="BGE sur GPU ; décharge complètement SDXL pendant son usage.",
+    )
+    embedding_group.add_argument(
+        "--CPU",
+        dest="embedding_memory_mode",
+        action="store_const",
+        const="cpu",
+        help="BGE sur CPU sans modifier la résidence mémoire de SDXL.",
+    )
+    parser.set_defaults(embedding_memory_mode="none")
     parser.add_argument(
         "--cors-origin",
         action="append",
@@ -652,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
             device=args.device,
             dtype_name=args.dtype,
             offload_strategy=args.offload,
+            embedding_memory_mode=args.embedding_memory_mode,
             cors_origins=args.cors_origin,
         ),
         host=args.host,

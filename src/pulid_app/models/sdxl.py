@@ -119,6 +119,7 @@ SAMPLING_METHOD_SPECS: dict[str, SamplingMethodSpec] = {
 }
 SUPPORTED_SAMPLING_METHODS = frozenset(SAMPLING_METHOD_SPECS)
 SUPPORTED_OFFLOAD_STRATEGIES = frozenset({"none", "model_cpu_offload"})
+EMBEDDING_PARTIAL_OFFLOAD_COMPONENTS = ("text_encoder", "text_encoder_2", "vae")
 
 
 class SDXLError(PuLIDAppError):
@@ -383,6 +384,7 @@ class SDXLModel:
         self.sampling_method: str | None = None
         self.sigma_schedule: str | None = None
         self._default_scheduler: Any | None = None
+        self._embedding_offloaded_components: tuple[str, ...] = ()
 
     @classmethod
     def from_config(
@@ -731,10 +733,88 @@ class SDXLModel:
         self.pipeline = None
         self.active_dtype = None
         self._default_scheduler = None
+        self._embedding_offloaded_components = ()
         try:
             self.memory_manager.unload(pipeline)
         except MemoryManagerError as exc:
             raise SDXLLoadError(f"Impossible de libérer le pipeline SDXL : {exc}") from exc
+
+    def partial_offload_for_embedding(self) -> bool:
+        """Place CLIP et le VAE sur CPU jusqu'à la prochaine génération."""
+
+        pipeline = self.pipeline
+        if pipeline is None or self._embedding_offloaded_components:
+            return False
+        if self.offload_strategy != "none":
+            raise SDXLLoadError(
+                "L'offload partiel déclenché par BGE exige offload_strategy=none ; "
+                "désactivez --offload model_cpu_offload."
+            )
+
+        components: list[tuple[str, Any]] = []
+        for name in EMBEDDING_PARTIAL_OFFLOAD_COMPONENTS:
+            module = getattr(pipeline, name, None)
+            if module is None:
+                raise SDXLLoadError(
+                    f"Offload partiel impossible : le composant SDXL {name!r} est absent."
+                )
+            components.append((name, module))
+
+        moved: list[tuple[str, Any]] = []
+        try:
+            for name, module in components:
+                self.memory_manager.unload(module, cleanup=False)
+                moved.append((name, module))
+            self.memory_manager.cleanup(force=True)
+        except MemoryManagerError as exc:
+            rollback_errors: list[str] = []
+            for name, module in moved:
+                try:
+                    self.memory_manager.move_to_device(module, self.device)
+                except MemoryManagerError as rollback_exc:
+                    rollback_errors.append(f"{name}: {rollback_exc}")
+            suffix = (
+                " Restauration incomplète : " + "; ".join(rollback_errors)
+                if rollback_errors
+                else ""
+            )
+            raise SDXLLoadError(
+                f"Impossible d'effectuer l'offload SDXL partiel : {exc}.{suffix}"
+            ) from exc
+
+        self._embedding_offloaded_components = tuple(name for name, _ in components)
+        return True
+
+    def restore_after_embedding(self) -> bool:
+        """Replace sur l'accélérateur les composants parqués par BGE."""
+
+        names = self._embedding_offloaded_components
+        if not names:
+            return False
+        pipeline = self.pipeline
+        if pipeline is None:
+            self._embedding_offloaded_components = ()
+            return False
+
+        restored: list[str] = []
+        try:
+            for name in names:
+                module = getattr(pipeline, name, None)
+                if module is None:
+                    raise SDXLLoadError(
+                        f"Restauration partielle impossible : composant {name!r} absent."
+                    )
+                self.memory_manager.move_to_device(module, self.device)
+                restored.append(name)
+        except (MemoryManagerError, SDXLLoadError) as exc:
+            remaining = tuple(name for name in names if name not in restored)
+            self._embedding_offloaded_components = remaining
+            raise SDXLLoadError(
+                f"Impossible de restaurer les composants SDXL après BGE : {exc}"
+            ) from exc
+
+        self._embedding_offloaded_components = ()
+        return True
 
     def close(self) -> None:
         """Décharge le pipeline ; les appels répétés sont sans effet."""

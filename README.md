@@ -38,10 +38,10 @@ Le script ne télécharge aucun modèle. Il exige le GGUF local sous
 configuration du modèle. Il peut être relancé après chaque `git pull` ; les
 dépendances déjà compatibles sont réutilisées.
 
-L'installateur essaie d'abord la wheel macOS arm64 précompilée. Si cette archive
-n'est pas exploitable, il compile automatiquement `llama-cpp-python` en mode CPU
-avec Accelerate et `GGML_METAL=OFF` ; les outils de ligne de commande Xcode sont
-alors requis.
+L'installateur essaie d'abord la wheel macOS arm64 Metal précompilée. Si cette
+archive n'est pas exploitable, il compile automatiquement `llama-cpp-python`
+avec Accelerate et `GGML_METAL=ON` ; les outils de ligne de commande Xcode sont
+alors requis. L'option serveur `--CPU` reste disponible avec ce même runtime.
 
 Pour créer l'environnement manuellement depuis la racine du projet :
 
@@ -366,14 +366,27 @@ utilisant le même checkpoint. Il est déchargé lorsqu'une requête sélectionn
 autre modèle ou lorsque le serveur s'arrête. MPS et CPU conservent le nettoyage
 après chaque génération.
 
-Le GGUF BGE-M3 est chargé paresseusement en RAM et forcé sur CPU avec
-`n_gpu_layers=0`. Un lot d'embeddings peut donc être calculé pendant une
-génération SDXL sans prendre de VRAM à la carte graphique. Les lots d'embeddings
-sont sérialisés entre eux.
+Le GGUF BGE-M3 est chargé paresseusement. Le serveur propose quatre modes, sans
+jamais modifier sa fenêtre de 8192 tokens :
 
-Sous Windows, `install_windows.bat` installe ou met à jour la wheel CPU de
+- sans option : BGE sur Metal/CUDA, sans offload SDXL ;
+- `--partial` : BGE sur GPU, avec les deux encodeurs CLIP et le VAE SDXL sur CPU
+  pendant les embeddings ; l'UNet et PuLID restent en VRAM ;
+- `--full` : BGE sur GPU, avec le pipeline SDXL entièrement déchargé ;
+- `--CPU` : BGE sur CPU, sans offload SDXL et avec concurrence CPU/GPU permise.
+
+```bash
+./start_pulid_server.sh --partial
+start_windows.bat --partial
+```
+
+Les trois options sont mutuellement exclusives. En mode GPU, SDXL et BGE ne
+calculent jamais simultanément. Avec `--partial` ou `--full`, BGE reste chargé
+entre ses appels puis est fermé avant la prochaine génération SDXL.
+
+Sous Windows, `install_windows.bat` installe ou met à jour la wheel CUDA 13.0 de
 `llama-cpp-python`, réinstalle le projet avec l'extra `embeddings`, puis vérifie
-le runtime et la présence de
+le backend CUDA et la présence de
 `PuLID_models\text_embedding\bge-m3-Q8_0.gguf`.
 
 Le contrat complet, les champs multipart, headers de réponse et exemples

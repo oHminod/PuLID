@@ -20,8 +20,19 @@ configuration LM Studio sert uniquement aux embeddings.
    <PuLID>\PuLID_models\text_embedding\bge-m3-Q8_0.gguf
    ```
 
-2. Après le `git pull`, exécuter `install_windows.bat`, puis démarrer
-   `start_windows.bat`.
+2. Après le `git pull`, exécuter `install_windows.bat`, puis choisir un mode de
+   démarrage :
+
+   ```bat
+   start_windows.bat
+   start_windows.bat --partial
+   start_windows.bat --full
+   start_windows.bat --CPU
+   ```
+
+   Sans option, BGE utilise CUDA sans offload SDXL. `--partial` déplace CLIP et
+   le VAE SDXL sur CPU pendant BGE, `--full` décharge entièrement SDXL et
+   `--CPU` conserve le comportement CPU sans offload.
 
 3. Depuis la machine qui exécute `rp-bot`, vérifier le catalogue en remplaçant
    `<IP_PC>` par l'adresse IPv4 affichée au démarrage de PuLID :
@@ -81,11 +92,9 @@ défaut. Pour les encodeurs GGUF tels que BGE-M3, conserver `batch_size` au moin
 provoquer une assertion native de llama.cpp sur les textes longs ; PuLID refuse
 désormais cette configuration au démarrage.
 
-`threads: 0` active le réglage automatique de `llama-cpp-python`. Sur un i9
-10 cœurs / 20 threads, le traitement par lots des embeddings peut ainsi utiliser
-les 20 CPU logiques pendant une reconstruction LanceDB. Cela peut saturer le CPU
-mais ne consomme toujours pas de VRAM ; définir une valeur positive permet de
-réintroduire une limite si nécessaire.
+Le contexte BGE reste fixé à 8192 tokens dans tous les modes. Avec `--CPU`,
+`threads: 0` permet au traitement par lots d'utiliser les 20 CPU logiques d'un
+i9 10 cœurs / 20 threads ; une valeur positive réintroduit une limite.
 
 ## Index LanceDB existants
 
@@ -128,8 +137,8 @@ réservant PuLID aux embeddings et à SDXL.
 ## Concurrence et réseau
 
 - PuLID sérialise les lots d'embeddings entre eux.
-- Un embedding tourne sur CPU et peut s'exécuter pendant une génération SDXL
-  CUDA ; le GGUF ne consomme pas de VRAM.
+- Les embeddings CUDA sont sérialisés avec SDXL. Seul `--CPU` autorise leur
+  exécution simultanée sans consommer de VRAM.
 - `start_windows.bat` lie l'API à `0.0.0.0:12693` et crée une règle de pare-feu
   pour le profil privé. Ne pas exposer ce port à Internet : l'API ne possède ni
   authentification ni limitation par utilisateur.

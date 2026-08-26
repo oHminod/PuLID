@@ -6,7 +6,7 @@ PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PULID_MODELS_ROOT="${PULID_MODELS_ROOT:-/Volumes/SSD/Documents/PuLID_models}"
 VENV_DIR="${PROJECT_DIR}/.venv"
 VENV_PYTHON="${VENV_DIR}/bin/python"
-LLAMA_CPP_CPU_INDEX="https://abetlen.github.io/llama-cpp-python/whl/cpu"
+LLAMA_CPP_METAL_INDEX="https://abetlen.github.io/llama-cpp-python/whl/metal"
 
 export PULID_MODELS_ROOT
 export HF_HOME="${PULID_MODELS_ROOT}/huggingface"
@@ -94,14 +94,15 @@ if [[ "${HOST_ARCH}" == "arm64" && "${PYTHON_ARCH}" != "arm64" ]]; then
   exit 1
 fi
 
-echo "Installation ou mise à jour du runtime GGUF CPU..."
+echo "Installation ou mise à jour du runtime GGUF Metal..."
 if ! "${UV_EXE}" pip install \
   --python "${VENV_PYTHON}" \
-  --extra-index-url "${LLAMA_CPP_CPU_INDEX}" \
+  --extra-index-url "${LLAMA_CPP_METAL_INDEX}" \
   --only-binary llama-cpp-python \
+  --reinstall-package llama-cpp-python \
   "llama-cpp-python>=0.3.16,<0.4"; then
-  echo "La wheel CPU n'a pas pu être installée ; compilation locale CPU via Accelerate..."
-  CMAKE_ARGS="-DGGML_METAL=OFF -DGGML_ACCELERATE=ON" \
+  echo "La wheel Metal n'a pas pu être installée ; compilation locale Metal..."
+  CMAKE_ARGS="-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_APPLE_SILICON_PROCESSOR=arm64 -DGGML_METAL=ON -DGGML_ACCELERATE=ON" \
     FORCE_CMAKE=1 \
     "${UV_EXE}" pip install \
       --python "${VENV_PYTHON}" \
@@ -114,12 +115,12 @@ fi
 echo "Installation ou mise à jour de PuLID et de ses extras..."
 "${UV_EXE}" pip install \
   --python "${VENV_PYTHON}" \
-  --extra-index-url "${LLAMA_CPP_CPU_INDEX}" \
+  --extra-index-url "${LLAMA_CPP_METAL_INDEX}" \
   --only-binary llama-cpp-python \
   -e ".[inference,pulid,server,embeddings,dev]"
 
 echo "Vérification des composants Python..."
-"${VENV_PYTHON}" -c "import diffusers, fastapi, llama_cpp, torch, transformers; print('Python', '${PYTHON_VERSION}', '-', '${PYTHON_ARCH}'); print('PyTorch', torch.__version__, '- MPS disponible :', torch.backends.mps.is_available()); print('llama-cpp-python', llama_cpp.__version__)"
+"${VENV_PYTHON}" -c "import diffusers, fastapi, llama_cpp, torch, transformers; info = llama_cpp.llama_print_system_info().decode(); assert 'MTL' in info, 'Backend Metal absent de llama-cpp-python'; print('Python', '${PYTHON_VERSION}', '-', '${PYTHON_ARCH}'); print('PyTorch', torch.__version__, '- MPS disponible :', torch.backends.mps.is_available()); print('llama-cpp-python', llama_cpp.__version__, '- Metal OK')"
 "${VENV_DIR}/bin/pulid-gen" --version
 "${VENV_PYTHON}" -c "from pulid_app.config import load_config; config = load_config(); embedding = config.text_embedding; assert embedding is not None; assert embedding.checkpoint.is_file(), embedding.checkpoint; print('GGUF configuré :', embedding.checkpoint)"
 
