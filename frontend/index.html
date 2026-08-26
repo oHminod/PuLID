@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Interface locale de génération d'images avec PuLID et SDXL."
+    />
+    <title>PuLID Studio</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="PuLID Studio — accueil">
+          <span class="brand-mark" aria-hidden="true">P</span>
+          <span>
+            <strong>PuLID Studio</strong>
+            <small>Génération d’identité locale</small>
+          </span>
+        </a>
+        <div class="connection-state" id="connectionState" role="status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="connectionLabel">Connexion au backend…</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="pageTitle">
+          <p class="eyebrow">SDXL + PuLID</p>
+          <h1 id="pageTitle">Créez une image qui garde son identité.</h1>
+          <p>
+            Ajoutez un portrait de référence, décrivez la scène et ajustez précisément
+            chaque paramètre de génération exposé par l’API.
+          </p>
+        </section>
+
+        <section class="connection-panel" aria-labelledby="connectionTitle">
+          <div>
+            <p class="section-kicker">Connexion</p>
+            <h2 id="connectionTitle">Backend de génération</h2>
+          </div>
+          <div class="connection-controls">
+            <label class="sr-only" for="backendUrl">Adresse du backend</label>
+            <input
+              id="backendUrl"
+              name="backend_url"
+              type="url"
+              value="http://127.0.0.1:12693"
+              spellcheck="false"
+              autocomplete="url"
+              readonly
+            />
+            <button class="button secondary" id="reconnectButton" type="button">
+              Reconnecter
+            </button>
+          </div>
+        </section>
+
+        <div class="workspace">
+          <form class="generation-form card" id="generationForm" novalidate>
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">Nouvelle création</p>
+                <h2>Paramètres</h2>
+              </div>
+              <p><span aria-hidden="true">*</span> Champs obligatoires</p>
+            </div>
+
+            <fieldset class="form-section">
+              <legend>Identité</legend>
+              <label class="upload-zone" id="uploadZone" for="reference">
+                <input
+                  id="reference"
+                  name="reference"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/bmp,image/tiff"
+                  required
+                />
+                <span class="upload-icon" aria-hidden="true">＋</span>
+                <span class="upload-copy">
+                  <strong id="uploadTitle">Ajouter un portrait <span>*</span></strong>
+                  <small id="uploadHint">JPEG, PNG, WebP, BMP ou TIFF · 20 Mio max.</small>
+                </span>
+                <img id="referencePreview" alt="Aperçu de la référence sélectionnée" hidden />
+              </label>
+
+              <div class="two-columns">
+                <label class="field" for="character">
+                  <span>Nom du personnage <b aria-hidden="true">*</b></span>
+                  <input
+                    id="character"
+                    name="character"
+                    type="text"
+                    maxlength="100"
+                    placeholder="Ex. Noémie"
+                    autocomplete="off"
+                    required
+                  />
+                </label>
+
+                <label class="field" for="model">
+                  <span>Modèle SDXL <b aria-hidden="true">*</b></span>
+                  <select id="model" name="model" required disabled>
+                    <option value="">Chargement des modèles…</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>Direction créative</legend>
+              <label class="field" for="prompt">
+                <span>Prompt positif <b aria-hidden="true">*</b></span>
+                <textarea
+                  id="prompt"
+                  name="prompt"
+                  rows="5"
+                  maxlength="4000"
+                  placeholder="Décrivez le sujet, la scène, la lumière et le style…"
+                  required
+                ></textarea>
+                <small class="character-count"><span id="promptCount">0</span> / 4000</small>
+              </label>
+
+              <div class="negative-header">
+                <label class="field" for="negativeMode">
+                  <span>Prompt négatif</span>
+                  <select id="negativeMode" name="negative_mode">
+                    <option value="default">Utiliser celui du pipeline</option>
+                    <option value="custom">Personnaliser</option>
+                    <option value="disabled">Désactiver le prompt négatif</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="field" id="negativePromptField" for="negativePrompt" hidden>
+                <span>Éléments à éviter</span>
+                <textarea
+                  id="negativePrompt"
+                  name="negative_prompt"
+                  rows="3"
+                  maxlength="4000"
+                  placeholder="Ex. texte, filigrane, anatomie incorrecte…"
+                ></textarea>
+                <small class="character-count"><span id="negativeCount">0</span> / 4000</small>
+              </label>
+            </fieldset>
+
+            <details class="advanced" open>
+              <summary>
+                <span>
+                  <small>Réglages avancés</small>
+                  <strong>Sampling et fidélité</strong>
+                </span>
+                <span class="summary-icon" aria-hidden="true">⌄</span>
+              </summary>
+
+              <div class="advanced-content">
+                <div class="toggle-row">
+                  <span>
+                    <strong>Clip skip 2</strong>
+                    <small>Utilise l’avant-dernière couche alternative des encodeurs.</small>
+                  </span>
+                  <label class="switch" for="clipSkip2">
+                    <input id="clipSkip2" name="clip_skip_2" type="checkbox" />
+                    <span aria-hidden="true"></span>
+                    <em class="sr-only">Activer Clip skip 2</em>
+                  </label>
+                </div>
+
+                <div class="three-columns">
+                  <label class="field" for="cfg">
+                    <span>CFG</span>
+                    <input id="cfg" name="cfg" type="number" value="7" min="0" max="30" step="0.1" />
+                    <small>0 à 30</small>
+                  </label>
+
+                  <label class="field" for="steps">
+                    <span>Steps</span>
+                    <input id="steps" name="steps" type="number" value="20" min="1" max="200" step="1" />
+                    <small>1 à 200</small>
+                  </label>
+
+                  <label class="field" for="strength">
+                    <span>Force d’identité</span>
+                    <input id="strength" name="strength" type="number" value="0.8" min="0" step="0.05" />
+                    <small>0 ou plus</small>
+                  </label>
+                </div>
+
+                <div class="two-columns">
+                  <label class="field" for="method">
+                    <span>Méthode de sampling</span>
+                    <select id="method" name="method" disabled>
+                      <option value="default">Scheduler du checkpoint</option>
+                    </select>
+                  </label>
+
+                  <label class="field" for="sigmas">
+                    <span>Courbe de sigmas</span>
+                    <select id="sigmas" name="sigmas" disabled>
+                      <option value="normal">Normal / natif</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label class="field" for="seed">
+                  <span>Seed</span>
+                  <input
+                    id="seed"
+                    name="seed"
+                    type="text"
+                    value="0"
+                    inputmode="numeric"
+                    pattern="-?\d+"
+                    autocomplete="off"
+                    aria-describedby="seedHelp"
+                  />
+                  <small id="seedHelp">0 ou −1 pour une seed aléatoire, sinon un entier positif.</small>
+                </label>
+              </div>
+            </details>
+
+            <div class="form-error" id="formError" role="alert" hidden></div>
+
+            <button class="button primary submit-button" id="generateButton" type="submit" disabled>
+              <span class="button-label">Générer l’image</span>
+              <span class="button-loader" aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <aside class="result-panel card" aria-labelledby="resultTitle">
+            <div class="card-heading result-heading">
+              <div>
+                <p class="section-kicker">Résultat</p>
+                <h2 id="resultTitle">Aperçu</h2>
+              </div>
+              <span class="resolution-badge">1024 × 1024</span>
+            </div>
+
+            <div class="result-stage" id="resultStage">
+              <div class="empty-result" id="emptyResult">
+                <span class="empty-orbit" aria-hidden="true"></span>
+                <strong>Votre création apparaîtra ici</strong>
+                <p>L’image reste dans votre navigateur jusqu’à son téléchargement.</p>
+              </div>
+              <div class="generating-result" id="generatingResult" hidden>
+                <span class="generation-spinner" aria-hidden="true"></span>
+                <strong>Génération en cours…</strong>
+                <p>Le premier chargement du modèle peut prendre un moment.</p>
+              </div>
+              <img id="generatedImage" alt="Image générée par PuLID" hidden />
+            </div>
+
+            <dl class="result-meta" id="resultMeta" hidden>
+              <div><dt>Seed</dt><dd id="resultSeed">—</dd></div>
+              <div><dt>Modèle</dt><dd id="resultModel">—</dd></div>
+              <div><dt>Sampling</dt><dd id="resultMethod">—</dd></div>
+              <div><dt>Sigmas</dt><dd id="resultSigmas">—</dd></div>
+            </dl>
+
+            <a class="button secondary download-button" id="downloadButton" href="#" download hidden>
+              Télécharger le PNG
+            </a>
+          </aside>
+        </div>
+      </main>
+
+      <footer>
+        <p>Interface locale · Les modèles et l’image de référence ne quittent pas votre machine.</p>
+      </footer>
+    </div>
+  </body>
+</html>

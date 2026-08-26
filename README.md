@@ -9,6 +9,41 @@ InsightFace, SDXL local, gestion mémoire, adaptateur PuLID v1.1, générateur,
 CLI, benchmark, compatibilité CUDA, tests automatisés, erreurs métier et
 documentation finale.
 
+## Frontend local de génération
+
+Une interface web autonome est disponible dans `frontend/`. Elle est servie sur
+le port `8888` et relaie uniquement les routes existantes `GET /models` et
+`POST /generate` du backend sur le port `12693`. Ce relais reste dans le serveur
+frontend et ne nécessite aucune modification du backend ni de sa configuration
+CORS.
+
+Lancer d'abord le backend, puis le frontend dans un second terminal :
+
+```bash
+# macOS
+./start_pulid_server.sh
+./start_frontend_macos.sh
+```
+
+Sous Windows, lancer séparément :
+
+```bat
+start_windows.bat
+start_frontend_windows.bat
+```
+
+Ouvrir ensuite [http://localhost:8888](http://localhost:8888). Le formulaire
+rend obligatoires l'image de référence, le nom du personnage, le prompt et le
+modèle. Il expose aussi le prompt négatif (valeur du pipeline, personnalisé ou
+désactivé), Clip skip 2, CFG, steps, force d'identité, méthode de sampling,
+courbe de sigmas et seed. Le PNG reçu reste en mémoire dans le navigateur et
+peut être téléchargé avec la seed effective renvoyée par le backend.
+
+Pour viser un backend lancé à une autre adresse, transmettre par exemple
+`--backend-url http://192.168.1.20:12693` au script frontend. Le frontend reste
+accessible uniquement sur la machine locale tant que son option `--host` reste
+à `127.0.0.1`.
+
 ## 1. Prérequis
 
 - une connexion Internet pour la première installation ;
