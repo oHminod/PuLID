@@ -73,6 +73,9 @@ if not exist "%VENV_PYTHON%" (
     if errorlevel 1 goto :venv_error
 )
 
+set "TORCH_DLL_DIR=%PROJECT_DIR%.venv\Lib\site-packages\torch\lib"
+set "PATH=%TORCH_DLL_DIR%;%PATH%"
+
 echo Installation de PyTorch 2.13 avec CUDA 13.0...
 "%UV_EXE%" pip install --python "%VENV_PYTHON%" "torch==2.13.0" "torchvision==0.28.0" --index-url "https://download.pytorch.org/whl/cu130"
 if errorlevel 1 goto :dependency_error
@@ -90,8 +93,8 @@ echo Verification de CUDA...
 if errorlevel 1 goto :cuda_error
 
 echo Verification du runtime GGUF CUDA...
-"%VENV_PYTHON%" -c "import llama_cpp; info = llama_cpp.llama_print_system_info().decode(); assert 'CUDA' in info, 'Backend CUDA absent de llama-cpp-python'; print('llama-cpp-python CUDA OK :', llama_cpp.__version__)"
-if errorlevel 1 goto :dependency_error
+"%VENV_PYTHON%" -c "import os, pathlib, sys; dll_dir = pathlib.Path(sys.prefix) / 'Lib' / 'site-packages' / 'torch' / 'lib'; dll_handle = os.add_dll_directory(str(dll_dir)); import llama_cpp; info = llama_cpp.llama_print_system_info().decode(); assert 'CUDA' in info, 'Backend CUDA absent de llama-cpp-python'; print('llama-cpp-python CUDA OK :', llama_cpp.__version__)"
+if errorlevel 1 goto :llama_cuda_error
 
 echo Verification de l'installation et des modeles...
 "%PROJECT_DIR%.venv\Scripts\pulid-gen.exe" doctor
@@ -130,6 +133,13 @@ goto :error_exit
 :cuda_error
 echo [ERREUR] PyTorch ne detecte pas la carte NVIDIA.
 echo Installez le dernier pilote NVIDIA compatible puis relancez ce script.
+goto :error_exit
+
+:llama_cuda_error
+echo [ERREUR] llama-cpp-python ne parvient pas a charger ses DLL CUDA.
+echo Le script a ajoute ce dossier de DLL PyTorch :
+echo   %TORCH_DLL_DIR%
+echo Verifiez qu'il existe et que le pilote NVIDIA est a jour, puis relancez ce script.
 goto :error_exit
 
 :validation_error

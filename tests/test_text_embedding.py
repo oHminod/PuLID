@@ -9,8 +9,31 @@ import pytest
 from pulid_app.config import TextEmbeddingConfig
 from pulid_app.models.text_embedding import (
     TextEmbeddingService,
+    _cuda_dll_candidates,
     load_llama_cpp_embedding_model,
 )
+
+
+def test_cuda_dll_candidates_include_torch_and_cuda_toolkit(tmp_path: Path) -> None:
+    prefix = tmp_path / "venv"
+    prefix_torch_lib = prefix / "Lib" / "site-packages" / "torch" / "lib"
+    prefix_torch_lib.mkdir(parents=True)
+    discovered_torch = tmp_path / "discovered" / "torch"
+    (discovered_torch / "lib").mkdir(parents=True)
+    cuda_root = tmp_path / "cuda"
+    (cuda_root / "bin").mkdir(parents=True)
+
+    candidates = _cuda_dll_candidates(
+        prefix=prefix,
+        environ={"CUDA_PATH": str(cuda_root)},
+        torch_package_dir=discovered_torch,
+    )
+
+    assert candidates == (
+        prefix_torch_lib.resolve(),
+        (discovered_torch / "lib").resolve(),
+        (cuda_root / "bin").resolve(),
+    )
 
 
 def test_llama_cpp_factory_forces_cpu_and_local_checkpoint(

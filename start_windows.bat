@@ -10,6 +10,8 @@ set "TORCH_HOME=%PULID_MODELS_ROOT%\torch"
 set "XDG_CACHE_HOME=%PULID_MODELS_ROOT%\other"
 set "MPLCONFIGDIR=%PULID_MODELS_ROOT%\other\matplotlib"
 set "NO_ALBUMENTATIONS_UPDATE=1"
+set "TORCH_DLL_DIR=%PROJECT_DIR%.venv\Lib\site-packages\torch\lib"
+set "PATH=%TORCH_DLL_DIR%;%PATH%"
 
 cd /d "%PROJECT_DIR%"
 

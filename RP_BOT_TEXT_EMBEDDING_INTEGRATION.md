@@ -34,6 +34,10 @@ configuration LM Studio sert uniquement aux embeddings.
    le VAE SDXL sur CPU pendant BGE, `--full` décharge entièrement SDXL et
    `--CPU` conserve le comportement CPU sans offload.
 
+   L'installation ajoute `.venv\Lib\site-packages\torch\lib` au chemin de
+   recherche des DLL afin que `llama.dll` retrouve les bibliothèques CUDA 13
+   déjà fournies avec PyTorch.
+
 3. Depuis la machine qui exécute `rp-bot`, vérifier le catalogue en remplaçant
    `<IP_PC>` par l'adresse IPv4 affichée au démarrage de PuLID :
 

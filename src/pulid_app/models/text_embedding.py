@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager
+import importlib.util
 import math
+import os
 from pathlib import Path
+import sys
 from threading import Lock
 from typing import Any
 
@@ -28,6 +32,69 @@ def _embedding_device_type(device: str) -> str:
     return normalized
 
 
+def _cuda_dll_candidates(
+    *,
+    prefix: Path,
+    environ: Mapping[str, str],
+    torch_package_dir: Path | None,
+) -> tuple[Path, ...]:
+    candidates = [prefix / "Lib" / "site-packages" / "torch" / "lib"]
+    if torch_package_dir is not None:
+        candidates.append(torch_package_dir / "lib")
+    for name, value in environ.items():
+        normalized_name = name.upper()
+        if normalized_name == "CUDA_PATH" or normalized_name.startswith(
+            "CUDA_PATH_V"
+        ):
+            if value.strip():
+                candidates.append(Path(value) / "bin")
+
+    selected: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve(strict=False)
+        key = str(resolved).casefold()
+        if key not in seen and resolved.is_dir():
+            selected.append(resolved)
+            seen.add(key)
+    return tuple(selected)
+
+
+def _windows_cuda_dll_directories() -> tuple[Path, ...]:
+    if os.name != "nt":
+        return ()
+    torch_spec = importlib.util.find_spec("torch")
+    torch_package_dir = (
+        Path(torch_spec.origin).parent
+        if torch_spec is not None and torch_spec.origin is not None
+        else None
+    )
+    return _cuda_dll_candidates(
+        prefix=Path(sys.prefix),
+        environ=os.environ,
+        torch_package_dir=torch_package_dir,
+    )
+
+
+@contextmanager
+def _cuda_dll_search_path(device_type: str):
+    handles: list[Any] = []
+    try:
+        if device_type == "cuda" and os.name == "nt":
+            add_directory = getattr(os, "add_dll_directory", None)
+            if not callable(add_directory):
+                raise ModelLoadError(
+                    "Python ne fournit pas os.add_dll_directory(), requis pour "
+                    "charger llama.cpp CUDA sous Windows."
+                )
+            for directory in _windows_cuda_dll_directories():
+                handles.append(add_directory(str(directory)))
+        yield
+    finally:
+        for handle in reversed(handles):
+            handle.close()
+
+
 def load_llama_cpp_embedding_model(
     config: TextEmbeddingConfig,
     *,
@@ -38,14 +105,6 @@ def load_llama_cpp_embedding_model(
     checkpoint = _require_checkpoint(config.checkpoint)
     device_type = _embedding_device_type(device)
     uses_accelerator = device_type in {"cuda", "mps"}
-    try:
-        from llama_cpp import Llama
-    except ImportError as exc:
-        raise ModelLoadError(
-            "Runtime GGUF absent. Installez l'extra Python 'embeddings' "
-            "puis relancez le serveur."
-        ) from exc
-
     llama_options: dict[str, Any] = {
         "model_path": str(checkpoint),
         "embedding": True,
@@ -66,9 +125,19 @@ def load_llama_cpp_embedding_model(
         llama_options["n_threads_batch"] = config.threads
 
     try:
-        return Llama(
-            **llama_options,
-        )
+        with _cuda_dll_search_path(device_type):
+            from llama_cpp import Llama
+
+            return Llama(
+                **llama_options,
+            )
+    except ImportError as exc:
+        raise ModelLoadError(
+            "Runtime GGUF absent. Installez l'extra Python 'embeddings' "
+            "puis relancez le serveur."
+        ) from exc
+    except ModelLoadError:
+        raise
     except Exception as exc:
         raise ModelLoadError(
             f"Impossible de charger le modèle d'embedding GGUF sur {device_type.upper()} : "
