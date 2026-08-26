@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import AsyncIterator, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO
@@ -67,7 +67,9 @@ DEFAULT_HEIGHT = 1024
 DEFAULT_IDENTITY_STRENGTH = 0.8
 MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 MAX_SEED = 2**63 - 1
-EMBEDDING_MEMORY_MODES = frozenset({"none", "partial", "full", "cpu"})
+EMBEDDING_MEMORY_MODES = frozenset(
+    {"none", "partial", "full", "cpu", "concurrent"}
+)
 
 
 @dataclass(frozen=True)
@@ -340,7 +342,7 @@ class GenerationService:
         """Applique à SDXL la politique choisie avant de charger BGE sur GPU."""
 
         generator = self._cuda_generator
-        if generator is None or memory_mode in {"none", "cpu"}:
+        if generator is None or memory_mode in {"none", "cpu", "concurrent"}:
             return False
         method_name = {
             "partial": "partial_offload_sdxl_for_embedding",
@@ -514,6 +516,11 @@ def _embedding_runtime_device(
 
     selected = (server_device or config.device.preferred).strip().casefold()
     device_type = selected.split(":", maxsplit=1)[0]
+    if memory_mode == "concurrent" and device_type != "cuda":
+        raise UnsupportedDeviceError(
+            "--concurrent-cuda exige un serveur CUDA. Relancez sans cette option "
+            "sur MPS ou CPU."
+        )
     if device_type not in {"cuda", "mps"}:
         raise UnsupportedDeviceError(
             "BGE sur GPU exige un serveur CUDA ou MPS. Utilisez --CPU pour "
@@ -541,6 +548,7 @@ def create_app(
     require_models_root(config.models_root)
     configure_external_model_caches(config.models_root)
     normalized_embedding_mode = embedding_memory_mode.strip().casefold()
+    concurrent_cuda = normalized_embedding_mode == "concurrent"
     embedding_device = _embedding_runtime_device(
         config,
         server_device=device,
@@ -590,6 +598,12 @@ def create_app(
     app.state.generation_service = service
     app.state.text_embedding_service = embedding_service
     app.state.embedding_memory_mode = normalized_embedding_mode
+    app.state.concurrent_cuda = concurrent_cuda
+    if concurrent_cuda:
+        LOGGER.warning(
+            "Mode expérimental --concurrent-cuda actif : SDXL et BGE peuvent "
+            "calculer simultanément sur le GPU."
+        )
     if cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -635,7 +649,9 @@ def create_app(
         try:
             async with embedding_lock:
                 if embedding_service.uses_accelerator:
-                    async with accelerator_lock:
+                    async with (
+                        nullcontext() if concurrent_cuda else accelerator_lock
+                    ):
                         await run_in_threadpool(
                             service.prepare_for_embedding,
                             normalized_embedding_mode,
@@ -692,7 +708,9 @@ def create_app(
                     "seed": seed,
                 }
                 if embedding_service.uses_accelerator:
-                    async with accelerator_lock:
+                    async with (
+                        nullcontext() if concurrent_cuda else accelerator_lock
+                    ):
                         await run_in_threadpool(prepare_generation_for_gpu)
                         payload = await run_in_threadpool(
                             service.generate,
@@ -747,6 +765,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_const",
         const="full",
         help="BGE sur GPU ; décharge complètement SDXL pendant son usage.",
+    )
+    embedding_group.add_argument(
+        "--concurrent-cuda",
+        dest="embedding_memory_mode",
+        action="store_const",
+        const="concurrent",
+        help=(
+            "Mode expérimental : BGE et SDXL sur CUDA sans verrou commun ni "
+            "offload."
+        ),
     )
     embedding_group.add_argument(
         "--CPU",

@@ -545,9 +545,15 @@ def test_embedding_memory_cli_modes_are_exclusive() -> None:
     assert parser.parse_args([]).embedding_memory_mode == "none"
     assert parser.parse_args(["--partial"]).embedding_memory_mode == "partial"
     assert parser.parse_args(["--full"]).embedding_memory_mode == "full"
+    assert (
+        parser.parse_args(["--concurrent-cuda"]).embedding_memory_mode
+        == "concurrent"
+    )
     assert parser.parse_args(["--CPU"]).embedding_memory_mode == "cpu"
     with pytest.raises(SystemExit):
         parser.parse_args(["--partial", "--full"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--concurrent-cuda", "--CPU"])
 
 
 def test_gpu_embedding_modes_require_an_accelerator(tmp_path: Path) -> None:
@@ -555,6 +561,13 @@ def test_gpu_embedding_modes_require_an_accelerator(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedDeviceError, match="Utilisez --CPU"):
         create_app(config, device="cpu", embedding_memory_mode="none")
+
+
+def test_concurrent_cuda_mode_rejects_non_cuda_server(tmp_path: Path) -> None:
+    config, _models = _write_config(tmp_path)
+
+    with pytest.raises(UnsupportedDeviceError, match="exige un serveur CUDA"):
+        create_app(config, device="mps", embedding_memory_mode="concurrent")
 
 
 def test_cpu_mode_forces_embedding_to_cpu_without_sdxl_offload(tmp_path: Path) -> None:
@@ -652,7 +665,15 @@ def test_full_mode_unloads_only_sdxl_until_next_generation(tmp_path: Path) -> No
     assert generator.closed is False
 
 
-def test_gpu_embedding_is_serialized_with_sdxl_generation(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("embedding_memory_mode", "expected_peak"),
+    (("none", 1), ("concurrent", 2)),
+)
+def test_gpu_embedding_concurrency_policy(
+    tmp_path: Path,
+    embedding_memory_mode: str,
+    expected_peak: int,
+) -> None:
     state_lock = threading.Lock()
     active = 0
     peak = 0
@@ -682,7 +703,7 @@ def test_gpu_embedding_is_serialized_with_sdxl_generation(tmp_path: Path) -> Non
     app = create_app(
         config,
         device="cuda",
-        embedding_memory_mode="none",
+        embedding_memory_mode=embedding_memory_mode,
         generator_factory=SerializedGenerator,
         embedding_model_factory=SerializedEmbeddingModel,
     )
@@ -716,7 +737,7 @@ def test_gpu_embedding_is_serialized_with_sdxl_generation(tmp_path: Path) -> Non
 
     assert generation_response.status_code == 200
     assert embedding_response.status_code == 200
-    assert peak == 1
+    assert peak == expected_peak
 
 
 def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path) -> None:

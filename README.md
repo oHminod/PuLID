@@ -366,23 +366,29 @@ utilisant le même checkpoint. Il est déchargé lorsqu'une requête sélectionn
 autre modèle ou lorsque le serveur s'arrête. MPS et CPU conservent le nettoyage
 après chaque génération.
 
-Le GGUF BGE-M3 est chargé paresseusement. Le serveur propose quatre modes, sans
+Le GGUF BGE-M3 est chargé paresseusement. Le serveur propose cinq modes, sans
 jamais modifier sa fenêtre de 8192 tokens :
 
 - sans option : BGE sur Metal/CUDA, sans offload SDXL ;
 - `--partial` : BGE sur GPU, avec les deux encodeurs CLIP et le VAE SDXL sur CPU
   pendant les embeddings ; l'UNet et PuLID restent en VRAM ;
 - `--full` : BGE sur GPU, avec le pipeline SDXL entièrement déchargé ;
-- `--CPU` : BGE sur CPU, sans offload SDXL et avec concurrence CPU/GPU permise.
+- `--CPU` : BGE sur CPU, sans offload SDXL et avec concurrence CPU/GPU permise ;
+- `--concurrent-cuda` : mode expérimental sans offload, autorisant BGE et SDXL
+  à calculer simultanément sur CUDA.
 
 ```bash
 ./start_pulid_server.sh --partial
 start_windows.bat --partial
+start_windows.bat --concurrent-cuda
 ```
 
-Les trois options sont mutuellement exclusives. En mode GPU, SDXL et BGE ne
-calculent jamais simultanément. Avec `--partial` ou `--full`, BGE reste chargé
-entre ses appels puis est fermé avant la prochaine génération SDXL.
+Les quatre options sont mutuellement exclusives. Les calculs GPU sont sérialisés
+par défaut ; seul `--concurrent-cuda` retire ce verrou. Sur une carte de 12 Gio,
+ce test peut provoquer un OOM pendant les pics mémoire : il suffit alors de
+redémarrer sans cette option pour retrouver le comportement sûr. Avec
+`--partial` ou `--full`, BGE reste chargé entre ses appels puis est fermé avant
+la prochaine génération SDXL.
 
 Sous Windows, `install_windows.bat` installe la wheel CUDA 13.0 épinglée de
 `llama-cpp-python`, puis remplace uniquement son backend CPU auxiliaire par la

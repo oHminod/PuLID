@@ -54,10 +54,13 @@ aucune option  BGE GPU, aucun offload SDXL
 --partial      BGE GPU, CLIP et VAE SDXL déplacés sur CPU
 --full         BGE GPU, pipeline SDXL entièrement déchargé
 --CPU          BGE CPU, aucun offload SDXL
+--concurrent-cuda  expérimental : BGE et SDXL calculent en parallèle sur CUDA
 ```
 
-Ces options sont mutuellement exclusives. `start_pulid_server.sh` et
-`start_windows.bat` transmettent leurs arguments au serveur.
+Ces options sont mutuellement exclusives. `--concurrent-cuda` ne fait aucun
+offload et peut provoquer un OOM lors d'un pic mémoire ; redémarrer sans ce flag
+restaure la sérialisation sûre. `start_pulid_server.sh` et `start_windows.bat`
+transmettent leurs arguments au serveur.
 
 URL de base utilisée dans les exemples :
 
@@ -88,7 +91,7 @@ ou égal à `context_size` : llama.cpp ne peut pas découper une séquence
 d'embedding en micro-lots indépendants. La configuration est refusée au
 démarrage si cette contrainte n'est pas respectée, au lieu de laisser
 llama.cpp interrompre nativement Python sur une entrée longue. La fenêtre reste
-à 8192 tokens dans les quatre modes. Avec `--CPU` et `threads: 0`,
+à 8192 tokens dans les cinq modes. Avec `--CPU` et `threads: 0`,
 `llama-cpp-python` utilise tous les CPU logiques pour le traitement par lots ;
 une valeur positive permet de limiter manuellement cette charge.
 
@@ -564,8 +567,9 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 - une seule génération est exécutée à la fois ; une requête concurrente attend
   la fin de la précédente afin de protéger la mémoire MPS/CUDA ;
 - un seul lot d'embeddings est calculé à la fois ;
-- les embeddings GPU et SDXL partagent un verrou et ne calculent jamais en
-  parallèle ; `--CPU` autorise au contraire un embedding CPU pendant SDXL ;
+- les embeddings GPU et SDXL partagent normalement un verrou ; le mode
+  expérimental `--concurrent-cuda` autorise leur calcul simultané, tandis que
+  `--CPU` autorise un embedding CPU pendant SDXL ;
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
 - l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
@@ -574,8 +578,9 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
   autre modèle ferme d'abord le générateur précédent afin de libérer sa VRAM ;
 - sur MPS et CPU, les composants du pipeline sont fermés après chaque réponse ;
 - le générateur CUDA encore actif est fermé à l'arrêt du serveur ;
-- sans option et avec `--CPU`, le GGUF reste chargé jusqu'à l'arrêt ; avec
-  `--partial` ou `--full`, il est également fermé avant une génération SDXL ;
+- sans option, avec `--CPU` ou `--concurrent-cuda`, le GGUF reste chargé jusqu'à
+  l'arrêt ; avec `--partial` ou `--full`, il est également fermé avant une
+  génération SDXL ;
 - aucun PNG ni manifeste JSON n'est créé par l'application serveur.
 
 Une génération peut prendre plusieurs dizaines de secondes. Le proxy ou le
