@@ -176,7 +176,7 @@ def test_llama_cpp_factory_offloads_all_layers_without_reducing_context(
     assert captured["n_ctx"] == 8192
     assert captured["n_batch"] == 8192
     assert captured["n_ubatch"] == 8192
-    assert captured["verbose"] is (device == "cuda")
+    assert captured["verbose"] is False
 
 
 def test_embedding_service_rejects_token_overflow_without_truncating(
