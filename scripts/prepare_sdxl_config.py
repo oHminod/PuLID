@@ -14,21 +14,12 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from pulid_app.config import ConfigError, load_config  # noqa: E402
+from pulid_app.installer import (  # noqa: E402
+    SDXL_CONFIG_PATTERNS as ALLOWED_CONFIG_PATTERNS,
+    SDXL_CONFIG_REPOSITORY as DEFAULT_CONFIG_REPO,
+    validate_sdxl_config_tree,
+)
 from pulid_app.paths import configure_external_model_caches  # noqa: E402
-
-
-DEFAULT_CONFIG_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
-ALLOWED_CONFIG_PATTERNS = (
-    "*.json",
-    "*.txt",
-    "*.model",
-    "**/*.json",
-    "**/*.txt",
-    "**/*.model",
-)
-FORBIDDEN_WEIGHT_SUFFIXES = frozenset(
-    {".safetensors", ".ckpt", ".pt", ".pth", ".bin"}
-)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,42 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _validate_config_tree(path: Path) -> tuple[int, int]:
-    required = (
-        path / "model_index.json",
-        path / "scheduler" / "scheduler_config.json",
-        path / "text_encoder" / "config.json",
-        path / "text_encoder_2" / "config.json",
-        path / "tokenizer" / "tokenizer_config.json",
-        path / "tokenizer" / "vocab.json",
-        path / "tokenizer" / "merges.txt",
-        path / "tokenizer_2" / "tokenizer_config.json",
-        path / "tokenizer_2" / "vocab.json",
-        path / "tokenizer_2" / "merges.txt",
-        path / "unet" / "config.json",
-        path / "vae" / "config.json",
-    )
-    missing = [file for file in required if not file.is_file()]
-    if missing:
-        raise RuntimeError(
-            "Configuration SDXL incomplète ; fichiers manquants : "
-            + ", ".join(str(file) for file in missing)
-        )
+    """Alias historique conservé pour les scripts et tests existants."""
 
-    all_files = [file for file in path.rglob("*") if file.is_file()]
-    forbidden = [
-        file for file in all_files if file.suffix.casefold() in FORBIDDEN_WEIGHT_SUFFIXES
-    ]
-    if forbidden:
-        raise RuntimeError(
-            "Des poids interdits ont été trouvés dans le dossier de configuration : "
-            + ", ".join(str(file) for file in forbidden)
-        )
-    config_files = [
-        file
-        for file in all_files
-        if ".cache" not in file.relative_to(path).parts
-    ]
-    return len(config_files), sum(file.stat().st_size for file in config_files)
+    return validate_sdxl_config_tree(path)
 
 
 def _format_bytes(value: int) -> str:

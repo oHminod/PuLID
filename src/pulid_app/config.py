@@ -12,6 +12,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default.yaml"
+LOCAL_CONFIG_PATH = PROJECT_ROOT / "config" / "local.yaml"
 DEFAULT_PULID_REVISION = "1aa2fc7df4bf51080df39f355f9abdc1cbfefbaa"
 
 
@@ -133,7 +134,11 @@ def _bounded_integer(
 def load_config(path: str | Path | None = None) -> AppConfig:
     """Charge la configuration et résout tous les chemins de façon déterministe."""
 
-    selected = path or os.environ.get("PULID_CONFIG") or DEFAULT_CONFIG_PATH
+    selected = (
+        path
+        or os.environ.get("PULID_CONFIG")
+        or (LOCAL_CONFIG_PATH if LOCAL_CONFIG_PATH.is_file() else DEFAULT_CONFIG_PATH)
+    )
     source_path = _absolute(selected, PROJECT_ROOT)
     if not source_path.is_file():
         raise ConfigError(f"Fichier de configuration introuvable : {source_path}")

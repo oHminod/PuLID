@@ -96,6 +96,24 @@ def test_incomplete_existing_source_is_never_overwritten(tmp_path: Path) -> None
     assert user_file.read_text(encoding="utf-8") == "preserve"
 
 
+def test_repair_existing_source_replaces_incomplete_snapshot(tmp_path: Path) -> None:
+    source = tmp_path / "PuLID"
+    source.mkdir()
+    (source / "stale.txt").write_text("stale", encoding="utf-8")
+
+    result = ensure_official_source(
+        source,
+        REVISION,
+        repair_existing=True,
+        opener=lambda _url: BytesIO(_archive()),
+    )
+
+    assert result.downloaded is True
+    assert not (source / "stale.txt").exists()
+    assert (source / "pulid/encoders_transformer.py").is_file()
+    assert json.loads((source / ".pulid-source.json").read_text())["revision"] == REVISION
+
+
 def test_revision_must_be_full_git_sha(tmp_path: Path) -> None:
     with pytest.raises(PuLIDAssetError, match="SHA Git complet"):
         ensure_official_source(tmp_path / "PuLID", "main")

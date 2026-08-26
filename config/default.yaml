@@ -1,4 +1,6 @@
-models_root: /Volumes/SSD/Documents/PuLID_models
+# L'installateur crée ce dossier à la racine du projet par défaut. Une
+# installation locale peut le surcharger dans config/local.yaml.
+models_root: PuLID_models
 
 sdxl:
   # Le VAE est intégré à ce checkpoint Lightning/BakedVAE.

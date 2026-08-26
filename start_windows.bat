@@ -2,24 +2,10 @@
 setlocal EnableExtensions
 
 set "PROJECT_DIR=%~dp0"
-set "PULID_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
-set "HF_HOME=%PULID_MODELS_ROOT%\huggingface"
-set "HUGGINGFACE_HUB_CACHE=%PULID_MODELS_ROOT%\huggingface\hub"
-set "TRANSFORMERS_CACHE=%PULID_MODELS_ROOT%\huggingface\transformers"
-set "TORCH_HOME=%PULID_MODELS_ROOT%\torch"
-set "XDG_CACHE_HOME=%PULID_MODELS_ROOT%\other"
-set "MPLCONFIGDIR=%PULID_MODELS_ROOT%\other\matplotlib"
-set "NO_ALBUMENTATIONS_UPDATE=1"
 set "TORCH_DLL_DIR=%PROJECT_DIR%.venv\Lib\site-packages\torch\lib"
 set "PATH=%TORCH_DLL_DIR%;%PATH%"
 
 cd /d "%PROJECT_DIR%"
-
-if not exist "%PULID_MODELS_ROOT%\" (
-    echo [ERREUR] Dossier de modeles introuvable :
-    echo   %PULID_MODELS_ROOT%
-    exit /b 1
-)
 
 set "SERVER_EXE=%PROJECT_DIR%.venv\Scripts\pulid-server.exe"
 if not exist "%SERVER_EXE%" (

@@ -53,6 +53,7 @@ dev = [
 [project.scripts]
 pulid-gen = "pulid_app.cli:main"
 pulid-inspect-models = "pulid_app.cli:inspect_main"
+pulid-install = "pulid_app.installer:main"
 pulid-server = "pulid_app.server:main"
 
 [tool.hatch.build.targets.wheel]

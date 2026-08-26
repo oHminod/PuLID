@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import pulid_app.config as config_module
 from pulid_app.config import ConfigError, load_config
 
 
@@ -84,6 +85,24 @@ def test_models_root_environment_override(
 
     assert config.models_root == override
     assert config.sdxl.checkpoint == override / "checkpoints/model.safetensors"
+
+
+def test_local_config_is_used_when_no_explicit_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    default_path = tmp_path / "default.yaml"
+    local_path = tmp_path / "local.yaml"
+    _write_config(default_path, tmp_path / "default-models")
+    _write_config(local_path, tmp_path / "local-models")
+    monkeypatch.setattr(config_module, "DEFAULT_CONFIG_PATH", default_path)
+    monkeypatch.setattr(config_module, "LOCAL_CONFIG_PATH", local_path)
+    monkeypatch.delenv("PULID_CONFIG", raising=False)
+    monkeypatch.delenv("PULID_MODELS_ROOT", raising=False)
+
+    config = load_config()
+
+    assert config.source_path == local_path
+    assert config.models_root == tmp_path / "local-models"
 
 
 def test_missing_required_key_is_actionable(tmp_path: Path) -> None:

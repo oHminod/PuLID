@@ -2,7 +2,49 @@
 setlocal EnableExtensions
 
 set "PROJECT_DIR=%~dp0"
-set "PULID_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
+if defined PULID_MODELS_ROOT goto :models_root_selected
+
+set "DEFAULT_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
+set "USE_DEFAULT="
+set /p "USE_DEFAULT=Utiliser l'emplacement par defaut %DEFAULT_MODELS_ROOT% ? [O/n] "
+if /I "%USE_DEFAULT%"=="N" goto :custom_models_root
+if /I "%USE_DEFAULT%"=="NON" goto :custom_models_root
+if /I "%USE_DEFAULT%"=="NO" goto :custom_models_root
+set "PULID_MODELS_ROOT=%DEFAULT_MODELS_ROOT%"
+goto :models_root_ready
+
+:custom_models_root
+set "CUSTOM_MODELS_ROOT="
+set /p "CUSTOM_MODELS_ROOT=Chemin du dossier parent ou d'un dossier PuLID_models : "
+if not defined CUSTOM_MODELS_ROOT goto :custom_models_root
+set "CUSTOM_MODELS_ROOT=%CUSTOM_MODELS_ROOT:"=%"
+for %%I in ("%CUSTOM_MODELS_ROOT%") do set "CUSTOM_MODELS_FULL=%%~fI"
+for %%I in ("%CUSTOM_MODELS_FULL%") do set "CUSTOM_MODELS_NAME=%%~nxI"
+if /I "%CUSTOM_MODELS_NAME%"=="PuLID_models" (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%"
+) else (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%\PuLID_models"
+)
+goto :models_root_ready
+
+:models_root_selected
+for %%I in ("%PULID_MODELS_ROOT%") do set "CUSTOM_MODELS_FULL=%%~fI"
+for %%I in ("%CUSTOM_MODELS_FULL%") do set "CUSTOM_MODELS_NAME=%%~nxI"
+if /I "%CUSTOM_MODELS_NAME%"=="PuLID_models" (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%"
+) else (
+    set "PULID_MODELS_ROOT=%CUSTOM_MODELS_FULL%\PuLID_models"
+)
+echo Emplacement fourni par PULID_MODELS_ROOT : %PULID_MODELS_ROOT%
+
+:models_root_ready
+if not exist "%PULID_MODELS_ROOT%\" mkdir "%PULID_MODELS_ROOT%"
+if errorlevel 1 (
+    echo [ERREUR] Impossible de creer le dossier de modeles :
+    echo   %PULID_MODELS_ROOT%
+    goto :error_exit
+)
+
 set "HF_HOME=%PULID_MODELS_ROOT%\huggingface"
 set "HUGGINGFACE_HUB_CACHE=%PULID_MODELS_ROOT%\huggingface\hub"
 set "TRANSFORMERS_CACHE=%PULID_MODELS_ROOT%\huggingface\transformers"
@@ -20,32 +62,11 @@ set "LLAMA_CPP_PORTABLE_CPU_DLL_SHA256=cd91f4ed375998da4da57fedaab1b0638fba8b2af
 
 cd /d "%PROJECT_DIR%"
 
-if not exist "%PULID_MODELS_ROOT%\" (
-    echo [ERREUR] Dossier de modeles introuvable :
-    echo   %PULID_MODELS_ROOT%
-    echo Copiez le dossier PuLID_models a la racine du projet, puis relancez ce script.
-    goto :error_exit
-)
-
 echo Nettoyage des metadonnees macOS incompatibles avec Windows...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$files = @(Get-ChildItem -LiteralPath $env:PULID_MODELS_ROOT -Recurse -Force -File -Filter '._*' -ErrorAction SilentlyContinue); if ($files.Count -gt 0) { Write-Host ('Suppression de ' + $files.Count + ' fichier(s) AppleDouble.'); $files | Remove-Item -Force -ErrorAction Stop }"
 if errorlevel 1 (
     echo [ERREUR] Impossible de supprimer les fichiers AppleDouble sous :
     echo   %PULID_MODELS_ROOT%
-    goto :error_exit
-)
-
-if not exist "%PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors" (
-    echo [ERREUR] Checkpoint SDXL par defaut introuvable :
-    echo   %PULID_MODELS_ROOT%\checkpoints\realvisxlV50_v50LightningBakedvae.safetensors
-    echo Verifiez que le dossier PuLID_models a ete copie integralement.
-    goto :error_exit
-)
-
-if not exist "%PULID_MODELS_ROOT%\text_embedding\bge-m3-Q8_0.gguf" (
-    echo [ERREUR] Modele d'embedding GGUF introuvable :
-    echo   %PULID_MODELS_ROOT%\text_embedding\bge-m3-Q8_0.gguf
-    echo Creez le dossier text_embedding sous PuLID_models et placez-y le GGUF.
     goto :error_exit
 )
 
@@ -112,6 +133,11 @@ if errorlevel 1 goto :llama_portable_error
 echo Installation de PuLID et du serveur HTTP...
 "%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
 if errorlevel 1 goto :dependency_error
+
+echo.
+echo Installation ou reparation des modeles et configurations...
+"%PROJECT_DIR%.venv\Scripts\pulid-install.exe" --models-root "%PULID_MODELS_ROOT%" --sdxl ask
+if errorlevel 1 goto :model_install_error
 
 echo Verification de CUDA...
 "%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available(), 'CUDA indisponible : mettez a jour le pilote NVIDIA'; print('CUDA OK :', torch.cuda.get_device_name(0), '- PyTorch', torch.__version__)"
@@ -192,6 +218,11 @@ goto :error_exit
 :validation_error
 echo [ERREUR] L'installation ou le dossier PuLID_models est incomplet.
 echo Consultez les erreurs affichees ci-dessus, corrigez-les puis relancez ce script.
+goto :error_exit
+
+:model_install_error
+echo [ERREUR] Les modeles ou configurations n'ont pas pu etre installes.
+echo Verifiez la connexion reseau et l'espace libre, puis relancez install_windows.bat.
 goto :error_exit
 
 :error_exit

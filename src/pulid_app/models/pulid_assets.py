@@ -108,6 +108,7 @@ def ensure_official_source(
     revision: str,
     *,
     allow_download: bool = True,
+    repair_existing: bool = False,
     opener: Callable[[str], BinaryIO] = urlopen,
 ) -> OfficialSource:
     """Valide ou télécharge atomiquement le snapshot officiel épinglé."""
@@ -116,9 +117,14 @@ def ensure_official_source(
     normalized_revision = _validate_revision(revision)
     missing = validate_official_source(destination)
     if not missing:
-        _validate_source_marker(destination, normalized_revision)
-        return OfficialSource(destination, normalized_revision, downloaded=False)
-    if destination.exists():
+        try:
+            _validate_source_marker(destination, normalized_revision)
+        except PuLIDAssetError:
+            if not repair_existing:
+                raise
+        else:
+            return OfficialSource(destination, normalized_revision, downloaded=False)
+    if destination.exists() and not repair_existing:
         raise PuLIDAssetError(
             f"Dossier PuLID officiel incomplet : {destination}. Fichiers manquants : "
             + ", ".join(str(path) for path in missing)
@@ -161,7 +167,15 @@ def ensure_official_source(
                 json.dumps(marker, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            os.replace(extracted, destination)
+            previous = temporary / "previous-source"
+            if destination.exists():
+                os.replace(destination, previous)
+            try:
+                os.replace(extracted, destination)
+            except OSError:
+                if previous.exists() and not destination.exists():
+                    os.replace(previous, destination)
+                raise
     except PuLIDAssetError:
         raise
     except OSError as exc:

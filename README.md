@@ -11,32 +11,43 @@ documentation finale.
 
 ## 1. Prérequis
 
-- Python 3.11 à 3.13 (Python 3.11 recommandé) ;
-- `uv` pour créer l'environnement et installer le projet ;
+- une connexion Internet pour la première installation ;
 - sur Mac, un Apple Silicon avec PyTorch/MPS ;
-- en option, un GPU NVIDIA/CUDA pour le backend CUDA ;
-- le SSD monté à l'emplacement configuré, par défaut
-  `/Volumes/SSD/Documents/PuLID_models` ;
-- les checkpoints et actifs décrits ci-dessous déjà présents sur ce SSD.
+- sous Windows, un GPU NVIDIA, un pilote compatible CUDA 13 et, si InsightFace
+  doit être compilé, Microsoft C++ Build Tools ;
+- au moins 20 Go libres avec le SDXL Base proposé, davantage pour des checkpoints
+  SDXL supplémentaires.
 
-Le checkpoint SDXL par défaut est
-`realvisxlV50_v50LightningBakedvae.safetensors`. Son VAE est intégré : aucun VAE
-externe ne doit être configuré ou chargé.
+Les scripts installent `uv`, Python 3.11 et les dépendances si nécessaire. Les
+modèles sont placés par défaut dans `PuLID_models/` à la racine du projet ; ce
+dossier est ignoré par Git. Un SSD ou tout autre dossier accessible peut être
+choisi à la place.
 
 ## 2. Création de l'environnement
 
-Sur macOS, la méthode recommandée crée `.venv` s'il est absent et met à jour un
-environnement existant avec tous les extras, dont le serveur et le runtime GGUF :
+La méthode recommandée crée `.venv` s'il est absent, installe le runtime adapté
+à la plateforme, puis lance le CLI de préparation des modèles :
 
 ```bash
+# macOS
 ./install_macos.sh
+
+# Windows, depuis l'Explorateur ou cmd.exe
+install_windows.bat
 ```
 
-Le script ne télécharge aucun modèle. Il exige le GGUF local sous
-`text_embedding/bge-m3-Q8_0.gguf`, force les caches Python et ML sous
-`PULID_MODELS_ROOT`, puis vérifie PyTorch/MPS, `llama-cpp-python` et la
-configuration du modèle. Il peut être relancé après chaque `git pull` ; les
-dépendances déjà compatibles sont réutilisées.
+L'installateur demande d'abord s'il faut utiliser l'emplacement par défaut. En
+cas de réponse négative, le chemin fourni peut désigner soit un dossier parent,
+soit directement un dossier nommé `PuLID_models` ; dans ce dernier cas aucun
+sous-dossier du même nom n'est ajouté.
+
+Il vérifie ensuite les empreintes et installe ou répare PuLID v1.1,
+AntelopeV2, EVA-CLIP, FaceXLib, BGE-M3, le snapshot de code PuLID et les
+configurations/tokenizers SDXL. Les fichiers valides sont réutilisés. Pour SDXL,
+il demande si un checkpoint existe déjà : l'utilisateur peut le déposer dans
+`checkpoints/` et le sélectionner, ou accepter le téléchargement du modèle
+officiel SDXL Base 1.0. À la fin, `doctor` doit réussir sans autre téléchargement
+manuel.
 
 L'installateur essaie d'abord la wheel macOS arm64 Metal précompilée. Si cette
 archive n'est pas exploitable, il compile automatiquement `llama-cpp-python`
@@ -60,7 +71,19 @@ et le développement est :
 
 ```bash
 uv pip install -e '.[inference,pulid,server,embeddings,dev]'
+pulid-install
 ```
+
+Pour automatiser ce CLI avec un emplacement et le modèle SDXL officiel :
+
+```bash
+pulid-install --models-root /chemin/parent --sdxl download
+```
+
+`--models-root` accepte également le chemin final `.../PuLID_models`.
+`--sdxl existing` exige qu'au moins un `.safetensors` soit déjà présent dans
+`checkpoints/`, et `--force-configs` force l'actualisation des petites
+configurations SDXL.
 
 Vérifier ensuite l'installation et la configuration sans charger les poids :
 
@@ -70,19 +93,20 @@ pulid-gen doctor
 python scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
 ```
 
-`doctor` vérifie notamment le montage du SSD, les checkpoints, AntelopeV2, les
+`doctor` vérifie notamment `models_root`, les checkpoints, AntelopeV2, les
 configs SDXL, le runtime PuLID épinglé, EVA-CLIP, FaceXLib, les permissions, les
 devices et les versions des dépendances critiques.
 
 ## 4. Arborescence des modèles
 
-Les fichiers lourds restent sous `models_root`, jamais dans le dépôt :
+Les fichiers lourds restent sous `models_root`, dont le dossier est ignoré par
+Git :
 
 ```text
-/Volumes/SSD/Documents/PuLID_models/
+<models_root>/
 ├── checkpoints/
-│   ├── realvisxlV50_v50LightningBakedvae.safetensors
-│   └── reaxl_v30.safetensors             # checkpoint SDXL alternatif
+│   ├── sd_xl_base_1.0.safetensors         # si le téléchargement est accepté
+│   └── <checkpoint-utilisateur>.safetensors
 ├── pulid_v1.1.safetensors
 ├── antelopev2/
 │   ├── 1k3d68.onnx
@@ -110,28 +134,29 @@ Les fichiers lourds restent sous `models_root`, jamais dans le dépôt :
 └── other/
 ```
 
-La préparation idempotente du code officiel PuLID se fait une seule fois :
+La réparation complète est idempotente et peut être relancée après une mise à
+jour du dépôt :
 
 ```bash
-python scripts/prepare_pulid.py
-python scripts/prepare_pulid.py --check-only
+pulid-install
 ```
 
-IDFormer, EVA-CLIP et les processeurs d'attention sont ainsi réutilisés depuis
-le SSD. Les poids EVA-CLIP et FaceXLib, lorsqu'ils doivent être acquis une
-première fois, sont également conservés sous cette même racine externe.
+Les scripts historiques `prepare_pulid.py` et `prepare_sdxl_config.py` restent
+disponibles pour ne préparer qu'un composant.
 
 ## 5. Configuration du checkpoint SDXL
 
-La configuration centrale est `config/default.yaml`. Les chemins de modèles
-relatifs sont résolus depuis `models_root`, tandis que `outputs_dir` et
-`identity_cache_dir` sont résolus depuis la racine du projet.
+`config/default.yaml` contient les valeurs du dépôt. L'installateur génère
+`config/local.yaml`, ignoré par Git, avec le `models_root`, le checkpoint SDXL
+sélectionné et le device de la plateforme. Cette configuration locale est
+chargée automatiquement ; une option `--config` ou `PULID_CONFIG` explicite
+reste prioritaire.
 
 ```yaml
-models_root: /Volumes/SSD/Documents/PuLID_models
+models_root: /chemin/choisi/PuLID_models
 
 sdxl:
-  checkpoint: checkpoints/realvisxlV50_v50LightningBakedvae.safetensors
+  checkpoint: checkpoints/sd_xl_base_1.0.safetensors
   config_dir: sdxl/stable-diffusion-xl-base-1.0-config
 
 device:
@@ -149,15 +174,16 @@ text_embedding:
 ```
 
 Un monofichier SDXL ne contient pas les JSON et tokenizers attendus par
-Diffusers. La commande suivante prépare uniquement ces petits fichiers et
-refuse les poids distants :
+Diffusers. `pulid-install` actualise uniquement ces petits fichiers et refuse
+les poids distants dans leur dossier de configuration. La commande spécialisée
+reste disponible :
 
 ```bash
 python scripts/prepare_sdxl_config.py
 ```
 
-Il est possible de surcharger le fichier avec `--config` ou `PULID_CONFIG`, et
-la racine externe avec `PULID_MODELS_ROOT`.
+La racine peut aussi être imposée à un script d'installation avec
+`PULID_MODELS_ROOT` ; cette variable évite alors la question interactive.
 
 ## 6. Test MPS
 
@@ -394,7 +420,8 @@ Sous Windows, `install_windows.bat` installe la wheel CUDA 13.0 épinglée de
 DLL portable issue de la wheel officielle de même version. Cela évite
 `0xc000001d` sur les Core i9 sans AVX-512 tout en conservant le calcul BGE sur
 CUDA. Le script vérifie ensuite un chargement et un embedding réels avec le
-contexte complet de 8192 tokens ; aucun modèle n'est téléchargé.
+contexte complet de 8192 tokens. Les modèles manquants sont préparés juste avant
+ces contrôles par le même CLI que sous macOS.
 
 Le contrat complet, les champs multipart, headers de réponse et exemples
 TypeScript sont décrits dans [`API_FRONTEND_INTEGRATION.md`](API_FRONTEND_INTEGRATION.md).
@@ -407,8 +434,8 @@ Les erreurs CLI affichent leur type et une correction probable :
 
 | Erreur | Cause probable | Correction |
 |---|---|---|
-| `ExternalDriveNotMountedError` | `models_root` ou son volume est absent | Monter le SSD puis relancer `pulid-gen doctor` |
-| `ModelNotFoundError` | checkpoint/config/ONNX local absent | Corriger `config/default.yaml` ou le nom fourni à `--model` |
+| `ExternalDriveNotMountedError` | `models_root` ou son volume est absent | Rendre le dossier accessible puis relancer `pulid-install` et `pulid-gen doctor` |
+| `ModelNotFoundError` | checkpoint/config/ONNX local absent | Relancer `pulid-install`, ou corriger `config/local.yaml` / le nom fourni à `--model` |
 | `FaceNotDetectedError` | aucun visage exploitable | Utiliser une référence nette, de face et suffisamment grande |
 | `MultipleFacesDetectedError` | plusieurs visages détectés | Ajouter `--face-index N` |
 | `PromptTooLongError` | prompt positif ou négatif supérieur à 255 jetons CLIP utiles | Raccourcir le texte en conservant les concepts prioritaires |
@@ -469,4 +496,5 @@ Tous les caches lourds sont forcés sous `models_root` avant les imports ML :
 | `MPLCONFIGDIR` | `other/matplotlib/` |
 
 Il ne faut ni déplacer ni recopier les checkpoints, EVA-CLIP, IDFormer,
-FaceXLib ou AntelopeV2 dans ce dépôt.
+FaceXLib ou AntelopeV2 dans les modules applicatifs ; l'installateur les garde
+tous sous le `models_root` sélectionné.

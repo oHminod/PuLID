@@ -11,6 +11,7 @@ htmlcov/
 # Environnements et secrets
 .venv/
 .env
+config/local.yaml
 
 # Éditeurs et macOS
 .DS_Store

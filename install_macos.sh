@@ -3,10 +3,51 @@
 set -Eeuo pipefail
 
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PULID_MODELS_ROOT="${PULID_MODELS_ROOT:-/Volumes/SSD/Documents/PuLID_models}"
 VENV_DIR="${PROJECT_DIR}/.venv"
 VENV_PYTHON="${VENV_DIR}/bin/python"
 LLAMA_CPP_METAL_INDEX="https://abetlen.github.io/llama-cpp-python/whl/metal"
+
+normalize_models_root() {
+  local selected="${1%/}"
+  if [[ "${selected}" == "~" ]]; then
+    selected="${HOME}"
+  elif [[ "${selected}" == "~/"* ]]; then
+    selected="${HOME}/${selected:2}"
+  elif [[ "${selected}" != /* ]]; then
+    selected="${PROJECT_DIR}/${selected}"
+  fi
+  if [[ "$(basename -- "${selected}" | tr '[:upper:]' '[:lower:]')" == "pulid_models" ]]; then
+    printf '%s\n' "${selected}"
+  else
+    printf '%s\n' "${selected}/PuLID_models"
+  fi
+}
+
+if [[ -z "${PULID_MODELS_ROOT:-}" ]]; then
+  DEFAULT_MODELS_ROOT="${PROJECT_DIR}/PuLID_models"
+  while true; do
+    read -r -p "Utiliser l'emplacement par défaut ${DEFAULT_MODELS_ROOT} ? [O/n] " USE_DEFAULT
+    case "${USE_DEFAULT:-o}" in
+      o|O|oui|OUI|y|Y|yes|YES)
+        PULID_MODELS_ROOT="${DEFAULT_MODELS_ROOT}"
+        break
+        ;;
+      n|N|non|NON|no|NO)
+        read -r -p "Chemin du dossier parent (ou d'un dossier déjà nommé PuLID_models) : " CUSTOM_MODELS_ROOT
+        if [[ -n "${CUSTOM_MODELS_ROOT}" ]]; then
+          PULID_MODELS_ROOT="$(normalize_models_root "${CUSTOM_MODELS_ROOT}")"
+          break
+        fi
+        ;;
+      *) echo "Répondez oui ou non." ;;
+    esac
+  done
+else
+  PULID_MODELS_ROOT="$(normalize_models_root "${PULID_MODELS_ROOT}")"
+  echo "Emplacement fourni par PULID_MODELS_ROOT : ${PULID_MODELS_ROOT}"
+fi
+
+mkdir -p "${PULID_MODELS_ROOT}"
 
 export PULID_MODELS_ROOT
 export HF_HOME="${PULID_MODELS_ROOT}/huggingface"
@@ -30,21 +71,6 @@ on_error() {
 trap on_error ERR
 
 cd "${PROJECT_DIR}"
-
-if [[ ! -d "${PULID_MODELS_ROOT}" ]]; then
-  echo "[ERREUR] Racine de modèles introuvable :" >&2
-  echo "  ${PULID_MODELS_ROOT}" >&2
-  echo "Montez le SSD ou surchargez PULID_MODELS_ROOT avant de relancer." >&2
-  exit 1
-fi
-
-EMBEDDING_CHECKPOINT="${PULID_MODELS_ROOT}/text_embedding/bge-m3-Q8_0.gguf"
-if [[ ! -f "${EMBEDDING_CHECKPOINT}" ]]; then
-  echo "[ERREUR] Modèle d'embedding GGUF introuvable :" >&2
-  echo "  ${EMBEDDING_CHECKPOINT}" >&2
-  echo "Placez le fichier dans text_embedding sous models_root." >&2
-  exit 1
-fi
 
 mkdir -p \
   "${HF_HOME}" \
@@ -119,10 +145,18 @@ echo "Installation ou mise à jour de PuLID et de ses extras..."
   --only-binary llama-cpp-python \
   -e ".[inference,pulid,server,embeddings,dev]"
 
+echo
+echo "Installation ou réparation des modèles et configurations..."
+"${VENV_DIR}/bin/pulid-install" \
+  --models-root "${PULID_MODELS_ROOT}" \
+  --sdxl ask
+
 echo "Vérification des composants Python..."
 "${VENV_PYTHON}" -c "import diffusers, fastapi, llama_cpp, torch, transformers; info = llama_cpp.llama_print_system_info().decode(); assert 'MTL' in info, 'Backend Metal absent de llama-cpp-python'; print('Python', '${PYTHON_VERSION}', '-', '${PYTHON_ARCH}'); print('PyTorch', torch.__version__, '- MPS disponible :', torch.backends.mps.is_available()); print('llama-cpp-python', llama_cpp.__version__, '- Metal OK')"
 "${VENV_DIR}/bin/pulid-gen" --version
 "${VENV_PYTHON}" -c "from pulid_app.config import load_config; config = load_config(); embedding = config.text_embedding; assert embedding is not None; assert embedding.checkpoint.is_file(), embedding.checkpoint; print('GGUF configuré :', embedding.checkpoint)"
+"${VENV_DIR}/bin/pulid-gen" doctor
+"${VENV_PYTHON}" scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
 
 trap - ERR
 echo
