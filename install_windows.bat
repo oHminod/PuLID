@@ -200,6 +200,9 @@ if errorlevel 1 (
 echo.
 echo Installation terminee.
 echo Lancez ensuite : start_windows.bat
+echo.
+echo Appuyez sur une touche pour fermer cette fenetre.
+pause >nul
 exit /b 0
 
 :venv_error
