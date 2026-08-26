@@ -542,32 +542,31 @@ def test_cpu_embedding_can_run_during_sdxl_generation(tmp_path: Path) -> None:
 def test_embedding_memory_cli_modes_are_exclusive() -> None:
     parser = build_parser()
 
-    assert parser.parse_args([]).embedding_memory_mode == "none"
+    assert parser.parse_args([]).embedding_memory_mode == "concurrent"
     assert parser.parse_args(["--partial"]).embedding_memory_mode == "partial"
     assert parser.parse_args(["--full"]).embedding_memory_mode == "full"
     assert (
-        parser.parse_args(["--concurrent-cuda"]).embedding_memory_mode
-        == "concurrent"
+        parser.parse_args(["--serialized-cuda"]).embedding_memory_mode
+        == "serialized"
     )
     assert parser.parse_args(["--CPU"]).embedding_memory_mode == "cpu"
     with pytest.raises(SystemExit):
         parser.parse_args(["--partial", "--full"])
     with pytest.raises(SystemExit):
-        parser.parse_args(["--concurrent-cuda", "--CPU"])
+        parser.parse_args(["--serialized-cuda", "--CPU"])
 
 
 def test_gpu_embedding_modes_require_an_accelerator(tmp_path: Path) -> None:
     config, _models = _write_config(tmp_path)
 
     with pytest.raises(UnsupportedDeviceError, match="Utilisez --CPU"):
-        create_app(config, device="cpu", embedding_memory_mode="none")
+        create_app(config, device="cpu", embedding_memory_mode="concurrent")
 
 
-def test_concurrent_cuda_mode_rejects_non_cuda_server(tmp_path: Path) -> None:
-    config, _models = _write_config(tmp_path)
+def test_default_mode_remains_serialized_on_mps(tmp_path: Path) -> None:
+    app = _app(tmp_path, device="mps", embedding_memory_mode="concurrent")
 
-    with pytest.raises(UnsupportedDeviceError, match="exige un serveur CUDA"):
-        create_app(config, device="mps", embedding_memory_mode="concurrent")
+    assert app.state.concurrent_cuda is False
 
 
 def test_cpu_mode_forces_embedding_to_cpu_without_sdxl_offload(tmp_path: Path) -> None:
@@ -589,7 +588,7 @@ def test_cpu_mode_forces_embedding_to_cpu_without_sdxl_offload(tmp_path: Path) -
 
 
 def test_default_gpu_mode_keeps_sdxl_and_bge_loaded_together(tmp_path: Path) -> None:
-    app = _app(tmp_path, device="cuda", embedding_memory_mode="none")
+    app = _app(tmp_path, device="cuda", embedding_memory_mode="concurrent")
 
     generation = _generate_request(app)
     embedding = _request(
@@ -667,7 +666,7 @@ def test_full_mode_unloads_only_sdxl_until_next_generation(tmp_path: Path) -> No
 
 @pytest.mark.parametrize(
     ("embedding_memory_mode", "expected_peak"),
-    (("none", 1), ("concurrent", 2)),
+    (("serialized", 1), ("concurrent", 2)),
 )
 def test_gpu_embedding_concurrency_policy(
     tmp_path: Path,

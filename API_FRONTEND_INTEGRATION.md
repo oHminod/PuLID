@@ -50,17 +50,18 @@ autorisée. Le serveur n'implémente pas d'authentification et doit rester lié 
 La politique mémoire BGE/SDXL se choisit au démarrage :
 
 ```text
-aucune option  BGE GPU, aucun offload SDXL
+aucune option  BGE et SDXL concurrents sur CUDA, aucun offload
+--serialized-cuda  BGE et SDXL sérialisés sur GPU, aucun offload
 --partial      BGE GPU, CLIP et VAE SDXL déplacés sur CPU
 --full         BGE GPU, pipeline SDXL entièrement déchargé
 --CPU          BGE CPU, aucun offload SDXL
---concurrent-cuda  expérimental : BGE et SDXL calculent en parallèle sur CUDA
 ```
 
-Ces options sont mutuellement exclusives. `--concurrent-cuda` ne fait aucun
-offload et peut provoquer un OOM lors d'un pic mémoire ; redémarrer sans ce flag
-restaure la sérialisation sûre. `start_pulid_server.sh` et `start_windows.bat`
-transmettent leurs arguments au serveur.
+Ces options sont mutuellement exclusives. Sur CUDA, la concurrence est activée
+par défaut. Si elle provoque un OOM lors d'un pic mémoire,
+`--serialized-cuda` restaure le verrou commun sans offload.
+`start_pulid_server.sh` et `start_windows.bat` transmettent leurs arguments au
+serveur.
 
 URL de base utilisée dans les exemples :
 
@@ -567,9 +568,9 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
 - une seule génération est exécutée à la fois ; une requête concurrente attend
   la fin de la précédente afin de protéger la mémoire MPS/CUDA ;
 - un seul lot d'embeddings est calculé à la fois ;
-- les embeddings GPU et SDXL partagent normalement un verrou ; le mode
-  expérimental `--concurrent-cuda` autorise leur calcul simultané, tandis que
-  `--CPU` autorise un embedding CPU pendant SDXL ;
+- sur CUDA, les embeddings GPU et SDXL calculent simultanément par défaut ;
+  `--serialized-cuda` rétablit un verrou commun, tandis que `--CPU` autorise un
+  embedding CPU pendant SDXL ;
 - le checkpoint choisi est chargé localement avec les téléchargements désactivés ;
 - l'embedding ArcFace est créé ou réutilisé dans le cache NPZ configuré ;
 - le PNG est encodé dans un buffer mémoire puis renvoyé immédiatement ;
@@ -578,7 +579,7 @@ Les erreurs de validation FastAPI utilisent un tableau standard dans `detail`.
   autre modèle ferme d'abord le générateur précédent afin de libérer sa VRAM ;
 - sur MPS et CPU, les composants du pipeline sont fermés après chaque réponse ;
 - le générateur CUDA encore actif est fermé à l'arrêt du serveur ;
-- sans option, avec `--CPU` ou `--concurrent-cuda`, le GGUF reste chargé jusqu'à
+- sans option, avec `--serialized-cuda` ou `--CPU`, le GGUF reste chargé jusqu'à
   l'arrêt ; avec `--partial` ou `--full`, il est également fermé avant une
   génération SDXL ;
 - aucun PNG ni manifeste JSON n'est créé par l'application serveur.
