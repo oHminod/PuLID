@@ -26,6 +26,7 @@ le CPU. Sur macOS, la détection faciale InsightFace reste exécutée sur CPU.
 ### Prérequis
 
 - une connexion Internet lors de la première installation ;
+- [Git](https://git-scm.com/downloads) pour récupérer le projet ;
 - Python 3.11 à 3.13, installé automatiquement par les scripts si nécessaire ;
 - sur macOS, un Mac Apple Silicon ;
 - sous Windows, un GPU NVIDIA et un pilote compatible avec CUDA 13 ;
@@ -33,17 +34,22 @@ le CPU. Sur macOS, la détection faciale InsightFace reste exécutée sur CPU.
   installés ;
 - sous Windows, Microsoft C++ Build Tools si InsightFace doit être compilé.
 
-Les modèles sont volumineux et ne sont pas versionnés avec le projet. Sur le Mac
-prévu pour ce dépôt, utilisez le SSD externe :
+Les modèles sont volumineux et ne sont pas versionnés avec le projet.
+L’installateur propose par défaut un dossier `PuLID_models` à la racine du
+projet, mais permet de choisir un autre emplacement, par exemple sur un SSD
+externe. Il y place les checkpoints, PuLID, AntelopeV2, BGE-M3 et tous les
+caches lourds.
 
-```text
-/Volumes/SSD/Documents/PuLID_models
+### 1. Cloner le dépôt
+
+Dans un terminal :
+
+```bash
+git clone https://github.com/oHminod/PuLID.git
+cd PuLID
 ```
 
-L’installateur peut aussi utiliser un autre dossier `PuLID_models`. Il y place
-les checkpoints, PuLID, AntelopeV2, BGE-M3 et tous les caches lourds.
-
-### macOS
+### 2. Installer sur macOS
 
 Depuis la racine du projet :
 
@@ -51,14 +57,11 @@ Depuis la racine du projet :
 ./install_macos.sh
 ```
 
-À la première exécution, indiquez l’emplacement des modèles. Pour utiliser le
-SSD externe, refusez l’emplacement proposé puis saisissez :
+À la première exécution, acceptez le dossier de modèles proposé ou indiquez un
+emplacement personnalisé. Le chemin peut désigner directement un dossier nommé
+`PuLID_models` ou son dossier parent.
 
-```text
-/Volumes/SSD/Documents/PuLID_models
-```
-
-### Windows
+### 3. Installer sous Windows
 
 Depuis l’Explorateur ou `cmd.exe` :
 
@@ -100,7 +103,7 @@ installe les bibliothèques d’exécution, mais pas le compilateur. La procédu
 Microsoft détaillée est disponible dans
 [Installer les outils Microsoft C++](https://learn.microsoft.com/cpp/overview/acquire-msvc?view=msvc-170).
 
-### Choix du checkpoint SDXL
+### 4. Choisir le checkpoint SDXL
 
 Si un checkpoint `.safetensors` existe déjà, placez-le dans le dossier
 `checkpoints` de `PuLID_models` lorsque l’installateur le demande. Sinon, vous
