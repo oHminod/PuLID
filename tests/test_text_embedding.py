@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from pulid_app.config import TextEmbeddingConfig
 from pulid_app.models.text_embedding import (
     TextEmbeddingService,
     _cuda_dll_candidates,
+    _nvidia_driver_cuda_dll_directories,
     load_llama_cpp_embedding_model,
 )
 
@@ -34,6 +36,41 @@ def test_cuda_dll_candidates_include_torch_and_cuda_toolkit(tmp_path: Path) -> N
         (discovered_torch / "lib").resolve(),
         (cuda_root / "bin").resolve(),
     )
+
+
+def test_cuda_dll_candidates_include_nvidia_driver_store(tmp_path: Path) -> None:
+    windows_root = tmp_path / "Windows"
+    repository = windows_root / "System32" / "DriverStore" / "FileRepository"
+    driver_dir = repository / "nv_dispi.inf_amd64_current"
+    driver_dir.mkdir(parents=True)
+    (driver_dir / "nvcudart_hybrid64.dll").touch()
+
+    candidates = _cuda_dll_candidates(
+        prefix=tmp_path / "venv",
+        environ={},
+        torch_package_dir=None,
+        windows_root=windows_root,
+    )
+
+    assert candidates == (driver_dir.resolve(),)
+
+
+def test_nvidia_driver_cuda_dll_directories_prefer_newest(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "System32" / "DriverStore" / "FileRepository"
+    older = repository / "nv_old.inf_amd64_1" / "nvcudart_hybrid64.dll"
+    newer = repository / "nv_new.inf_amd64_2" / "nvcudart_hybrid64.dll"
+    older.parent.mkdir(parents=True)
+    newer.parent.mkdir(parents=True)
+    older.touch()
+    newer.touch()
+    os.utime(older, ns=(1, 1))
+    os.utime(newer, ns=(2, 2))
+
+    directories = _nvidia_driver_cuda_dll_directories(tmp_path)
+
+    assert directories == (newer.parent,)
 
 
 def test_llama_cpp_factory_forces_cpu_and_local_checkpoint(

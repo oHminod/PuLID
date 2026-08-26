@@ -93,7 +93,7 @@ echo Verification de CUDA...
 if errorlevel 1 goto :cuda_error
 
 echo Verification du runtime GGUF CUDA...
-"%VENV_PYTHON%" -c "import os, pathlib, sys; dll_dir = pathlib.Path(sys.prefix) / 'Lib' / 'site-packages' / 'torch' / 'lib'; dll_handle = os.add_dll_directory(str(dll_dir)); import llama_cpp; info = llama_cpp.llama_print_system_info().decode(); assert 'CUDA' in info, 'Backend CUDA absent de llama-cpp-python'; print('llama-cpp-python CUDA OK :', llama_cpp.__version__)"
+"%VENV_PYTHON%" -c "import os; from pulid_app.models.text_embedding import _windows_cuda_dll_directories; dll_dirs = _windows_cuda_dll_directories(); assert any((path / 'nvcudart_hybrid64.dll').is_file() for path in dll_dirs), 'nvcudart_hybrid64.dll introuvable : mettez a jour le pilote NVIDIA'; dll_handles = [os.add_dll_directory(str(path)) for path in dll_dirs]; import llama_cpp; info = llama_cpp.llama_print_system_info().decode(); assert 'CUDA' in info, 'Backend CUDA absent de llama-cpp-python'; print('llama-cpp-python CUDA OK :', llama_cpp.__version__)"
 if errorlevel 1 goto :llama_cuda_error
 
 echo Verification de l'installation et des modeles...
@@ -137,9 +137,11 @@ goto :error_exit
 
 :llama_cuda_error
 echo [ERREUR] llama-cpp-python ne parvient pas a charger ses DLL CUDA.
-echo Le script a ajoute ce dossier de DLL PyTorch :
+echo Le script a recherche les DLL CUDA dans PyTorch et dans le pilote NVIDIA.
+echo Dossier PyTorch :
 echo   %TORCH_DLL_DIR%
-echo Verifiez qu'il existe et que le pilote NVIDIA est a jour, puis relancez ce script.
+echo Mettez a jour le pilote NVIDIA afin d'installer nvcudart_hybrid64.dll,
+echo puis relancez install_windows.bat.
 goto :error_exit
 
 :validation_error

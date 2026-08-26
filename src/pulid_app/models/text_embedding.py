@@ -37,6 +37,7 @@ def _cuda_dll_candidates(
     prefix: Path,
     environ: Mapping[str, str],
     torch_package_dir: Path | None,
+    windows_root: Path | None = None,
 ) -> tuple[Path, ...]:
     candidates = [prefix / "Lib" / "site-packages" / "torch" / "lib"]
     if torch_package_dir is not None:
@@ -48,6 +49,8 @@ def _cuda_dll_candidates(
         ):
             if value.strip():
                 candidates.append(Path(value) / "bin")
+    if windows_root is not None:
+        candidates.extend(_nvidia_driver_cuda_dll_directories(windows_root))
 
     selected: list[Path] = []
     seen: set[str] = set()
@@ -58,6 +61,27 @@ def _cuda_dll_candidates(
             selected.append(resolved)
             seen.add(key)
     return tuple(selected)
+
+
+def _nvidia_driver_cuda_dll_directories(windows_root: Path) -> tuple[Path, ...]:
+    """Trouve le runtime CUDA 13 livré avec le pilote NVIDIA Windows."""
+
+    repository = windows_root / "System32" / "DriverStore" / "FileRepository"
+    if not repository.is_dir():
+        return ()
+    try:
+        runtime_dlls = list(repository.glob("*/nvcudart_hybrid64.dll"))
+    except OSError:
+        return ()
+
+    def modification_time(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    runtime_dlls.sort(key=modification_time, reverse=True)
+    return (runtime_dlls[0].parent,) if runtime_dlls else ()
 
 
 def _windows_cuda_dll_directories() -> tuple[Path, ...]:
@@ -73,6 +97,7 @@ def _windows_cuda_dll_directories() -> tuple[Path, ...]:
         prefix=Path(sys.prefix),
         environ=os.environ,
         torch_package_dir=torch_package_dir,
+        windows_root=Path(os.environ.get("SystemRoot", r"C:\Windows")),
     )
 
 
@@ -87,7 +112,18 @@ def _cuda_dll_search_path(device_type: str):
                     "Python ne fournit pas os.add_dll_directory(), requis pour "
                     "charger llama.cpp CUDA sous Windows."
                 )
-            for directory in _windows_cuda_dll_directories():
+            directories = _windows_cuda_dll_directories()
+            if not any(
+                (directory / "nvcudart_hybrid64.dll").is_file()
+                for directory in directories
+            ):
+                raise ModelLoadError(
+                    "Runtime CUDA 13 du pilote NVIDIA introuvable : "
+                    "nvcudart_hybrid64.dll est absent du DriverStore Windows. "
+                    "Installez le dernier pilote NVIDIA, puis relancez "
+                    "install_windows.bat."
+                )
+            for directory in directories:
                 handles.append(add_directory(str(directory)))
         yield
     finally:

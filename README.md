@@ -409,7 +409,7 @@ Les erreurs CLI affichent leur type et une correction probable :
 | `ModelLoadError` | dépendance, provider, poids ou mémoire | Lancer `doctor`, vérifier les versions et réduire la charge mémoire |
 | `GenerationError` | paramètre ou étape d'inférence en échec | Lire la cause affichée, vérifier dimensions/steps/CFG puis réessayer |
 | `EmbeddingError` | réponse ou calcul GGUF invalide | Vérifier le GGUF, `llama-cpp-python`, la longueur du texte et relancer |
-| `Failed to load ... llama.dll` | DLL CUDA PyTorch absentes du chemin Windows | Relancer `install_windows.bat`; le script ajoute désormais `torch\lib` au chemin DLL |
+| `Failed to load ... llama.dll` | DLL CUDA de PyTorch ou `nvcudart_hybrid64.dll` du pilote NVIDIA absente du chemin Windows | Mettre à jour le pilote NVIDIA puis relancer `install_windows.bat`; le serveur ajoute automatiquement `torch\lib` et le dossier NVIDIA du `DriverStore` |
 
 Contrôles utiles :
 
