@@ -58,6 +58,46 @@ def test_offline_eva_pretrained_is_resolved_from_local_cache(
     assert adapter._resolve_eva_pretrained(runtime) == str(cached)
 
 
+def test_offline_eva_pretrained_finds_revision_pinned_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cached = (
+        tmp_path
+        / "huggingface"
+        / "hub"
+        / "models--QuanSun--EVA-CLIP"
+        / "snapshots"
+        / "11afd202f2ae80869d6cef18b1ec775e79bd8d12"
+        / "EVA02_CLIP_L_336_psz14_s6B.pt"
+    )
+    cached.parent.mkdir(parents=True)
+    cached.touch()
+    import huggingface_hub
+
+    monkeypatch.setattr(
+        huggingface_hub,
+        "try_to_load_from_cache",
+        lambda repository, filename, cache_dir: None,
+    )
+    adapter = PuLIDAdapter(
+        tmp_path / "pulid.safetensors",
+        models_root=tmp_path,
+        allow_downloads=False,
+    )
+    runtime = SimpleNamespace(
+        eva_clip=SimpleNamespace(
+            get_pretrained_cfg=lambda model, tag: {
+                "hf_hub": (
+                    "QuanSun/EVA-CLIP/"
+                    "EVA02_CLIP_L_336_psz14_s6B.pt"
+                )
+            }
+        )
+    )
+
+    assert adapter._resolve_eva_pretrained(runtime) == str(cached)
+
+
 def test_split_checkpoint_state_rejects_unknown_module() -> None:
     with pytest.raises(PuLIDConfigurationError, match="modules inattendus"):
         split_checkpoint_state(

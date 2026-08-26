@@ -388,21 +388,39 @@ class PuLIDAdapter:
                 )
             from huggingface_hub import try_to_load_from_cache
 
+            cache_dir = self.models_root / "huggingface" / "hub"
             cached = try_to_load_from_cache(
                 repository,
                 filename,
-                cache_dir=str(self.models_root / "huggingface" / "hub"),
+                cache_dir=str(cache_dir),
             )
+            if isinstance(cached, str) and Path(cached).is_file():
+                return cached
+
+            repository_parts = repository.split("/")
+            if any(
+                not part or part in {".", ".."} or "\\" in part
+                for part in repository_parts
+            ):
+                raise ValueError(f"identifiant de dépôt invalide : {repository}")
+            snapshot_root = (
+                cache_dir
+                / f"models--{'--'.join(repository_parts)}"
+                / "snapshots"
+            )
+            if snapshot_root.is_dir():
+                for snapshot in sorted(snapshot_root.iterdir()):
+                    candidate = snapshot / filename
+                    if snapshot.is_dir() and candidate.is_file():
+                        return str(candidate)
         except (ImportError, OSError, TypeError, ValueError) as exc:
             raise PuLIDLoadError(
                 f"Impossible de résoudre EVA-CLIP dans le cache local : {exc}"
             ) from exc
-        if not isinstance(cached, str) or not Path(cached).is_file():
-            raise PuLIDLoadError(
-                f"Poids EVA-CLIP absents du cache local pour {repository}/{filename}. "
-                "Relancez sans --offline une première fois."
-            )
-        return cached
+        raise PuLIDLoadError(
+            f"Poids EVA-CLIP absents du cache local pour {repository}/{filename}. "
+            "Relancez `pulid-install` pour réparer les modèles manquants."
+        )
 
     def _load_image_bgr(
         self, image: str | Path | Image.Image | NDArray[np.uint8]

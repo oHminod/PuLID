@@ -139,8 +139,8 @@ def _eva_clip_check(config: AppConfig) -> DoctorCheck:
         return DoctorCheck(
             "EVA-CLIP",
             "error",
-            "Poids EVA-CLIP absents du cache externe. Exécutez une fois "
-            "scripts/test_pulid_adapter.py sans --offline.",
+            "Poids EVA-CLIP absents du cache externe. Relancez `pulid-install` "
+            "pour réparer les modèles manquants.",
         )
     return DoctorCheck("EVA-CLIP", "ok", str(readable[0]))
 
