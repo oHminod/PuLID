@@ -38,6 +38,17 @@ def test_frontend_marks_every_backend_required_field_as_required() -> None:
         assert "required" in parser.fields[name]
 
 
+def test_wide_layout_separates_primary_controls_and_result_cards() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
+
+    assert 'class="primary-settings card"' in html
+    assert 'class="generation-controls card"' in html
+    assert 'class="result-panel card"' in html
+    assert "@media (min-width: 1180px)" in styles
+    assert "grid-template-columns:" in styles
+
+
 def test_frontend_client_sends_every_generation_parameter() -> None:
     source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     direct_fields = {

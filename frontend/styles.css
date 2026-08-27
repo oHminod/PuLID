@@ -193,12 +193,25 @@ summary,
   box-shadow: var(--shadow);
 }
 
-.generation-form,
+.primary-settings,
+.generation-controls,
 .result-panel {
   padding: 26px;
 }
 
+.primary-settings {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.generation-controls {
+  grid-column: 1;
+  grid-row: 2;
+}
+
 .result-panel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   position: sticky;
   top: 20px;
 }
@@ -449,6 +462,72 @@ textarea::placeholder {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgb(8 8 12 / 28%);
+}
+
+.generation-controls {
+  padding: 20px;
+}
+
+.generation-controls .advanced {
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.generation-controls .advanced summary {
+  padding: 0 0 15px;
+}
+
+.generation-controls .advanced-content {
+  padding: 0;
+}
+
+.generation-controls .toggle-row {
+  padding: 13px 0 0;
+}
+
+.generation-controls .three-columns {
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.generation-controls .two-columns {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.generation-controls .field {
+  gap: 6px;
+}
+
+.generation-controls .field > span,
+.generation-controls .toggle-row strong {
+  font-size: 0.74rem;
+}
+
+.generation-controls .field > small,
+.generation-controls .toggle-row small {
+  font-size: 0.64rem;
+}
+
+.generation-controls input,
+.generation-controls select {
+  min-height: 40px;
+  padding: 0 9px;
+}
+
+.generation-controls .advanced-content > .field {
+  margin-top: 12px;
+}
+
+.generation-controls .form-error {
+  margin-top: 14px;
+}
+
+.generation-controls .submit-button {
+  margin-top: 16px;
 }
 
 .advanced summary {
@@ -825,6 +904,32 @@ footer p {
   }
 }
 
+@media (min-width: 1180px) {
+  .workspace {
+    grid-template-columns:
+      minmax(240px, 0.58fr)
+      minmax(360px, 1fr)
+      minmax(340px, 0.92fr);
+  }
+
+  .generation-controls {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 20px;
+  }
+
+  .primary-settings {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .result-panel {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
 @media (max-width: 900px) {
   .workspace {
     grid-template-columns: 1fr;
@@ -832,6 +937,13 @@ footer p {
 
   .result-panel {
     position: static;
+  }
+
+  .primary-settings,
+  .generation-controls,
+  .result-panel {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .result-stage {

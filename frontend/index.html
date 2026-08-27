@@ -60,8 +60,8 @@
           </div>
         </section>
 
-        <div class="workspace">
-          <form class="generation-form card" id="generationForm" novalidate>
+        <form class="workspace" id="generationForm" novalidate>
+          <section class="primary-settings card">
             <div class="card-heading">
               <div>
                 <p class="section-kicker">Nouvelle création</p>
@@ -154,7 +154,9 @@
                 <small class="character-count"><span id="negativeCount">0</span> / 4000</small>
               </label>
             </fieldset>
+          </section>
 
+          <section class="generation-controls card">
             <details class="advanced" open>
               <summary>
                 <span>
@@ -236,7 +238,7 @@
               <span class="button-label">Générer l’image</span>
               <span class="button-loader" aria-hidden="true"></span>
             </button>
-          </form>
+          </section>
 
           <aside class="result-panel card" aria-labelledby="resultTitle">
             <div class="card-heading result-heading">
@@ -272,7 +274,7 @@
               Télécharger le PNG
             </a>
           </aside>
-        </div>
+        </form>
       </main>
 
       <footer>
