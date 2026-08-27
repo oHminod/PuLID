@@ -299,7 +299,16 @@
                 <strong>Génération en cours…</strong>
                 <p>Le premier chargement du modèle peut prendre un moment.</p>
               </div>
-              <img id="generatedImage" alt="Image générée par PuLID" hidden />
+              <img
+                id="generatedImage"
+                alt="Image générée par PuLID"
+                role="button"
+                tabindex="0"
+                aria-label="Agrandir l’image générée"
+                aria-haspopup="dialog"
+                aria-controls="imageLightbox"
+                hidden
+              />
             </div>
 
             <dl class="result-meta" id="resultMeta" hidden>
@@ -316,6 +325,22 @@
           </div>
         </form>
       </main>
+
+      <dialog
+        class="image-lightbox"
+        id="imageLightbox"
+        aria-label="Aperçu de l’image en plein écran"
+      >
+        <button
+          class="lightbox-close"
+          id="closeLightbox"
+          type="button"
+          aria-label="Fermer l’aperçu plein écran"
+        >
+          ×
+        </button>
+        <img id="lightboxImage" alt="Image générée par PuLID en plein écran" />
+      </dialog>
     </div>
   </body>
 </html>

@@ -850,6 +850,75 @@ textarea::placeholder {
   object-fit: contain;
 }
 
+#generatedImage:not([hidden]) {
+  cursor: zoom-in;
+}
+
+#generatedImage:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.image-lightbox {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 54px;
+  background: rgb(4 4 7 / 96%);
+  color: var(--text);
+}
+
+.image-lightbox[open] {
+  display: grid;
+  place-items: center;
+}
+
+.image-lightbox::backdrop {
+  background: rgb(0 0 0 / 82%);
+}
+
+.image-lightbox > img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 52%);
+}
+
+.lightbox-close {
+  position: fixed;
+  z-index: 1;
+  top: 18px;
+  right: 20px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background: rgb(18 18 24 / 86%);
+  color: var(--text);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.lightbox-close:hover {
+  border-color: rgb(255 255 255 / 38%);
+  background: var(--surface-hover);
+}
+
+.lightbox-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .empty-result,
 .generating-result {
   max-width: 270px;
@@ -1090,6 +1159,10 @@ textarea::placeholder {
   .result-stage,
   .result-stage > img {
     min-height: 300px;
+  }
+
+  .image-lightbox {
+    padding: 52px 14px 14px;
   }
 }
 

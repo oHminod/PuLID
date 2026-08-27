@@ -189,6 +189,24 @@ def test_loading_spinners_keep_rotating_with_reduced_motion_enabled() -> None:
     assert reduced_motion.count("animation-iteration-count: infinite !important") == 2
 
 
+def test_generated_image_opens_an_accessible_fullscreen_lightbox() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
+    source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
+
+    assert 'aria-controls="imageLightbox"' in html
+    assert '<dialog' in html
+    assert 'id="imageLightbox"' in html
+    assert 'id="closeLightbox"' in html
+    assert ".image-lightbox[open]" in styles
+    assert "width: 100vw" in styles
+    assert "height: 100dvh" in styles
+    assert "elements.imageLightbox.showModal()" in source
+    assert 'elements.generatedImage.addEventListener("click", activateImageLightbox)' in source
+    assert 'elements.generatedImage.addEventListener("keydown", activateImageLightbox)' in source
+    assert "event.target === elements.imageLightbox" in source
+
+
 def test_clearing_only_reference_preserves_settings_and_result() -> None:
     app_source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     storage_source = (frontend_directory() / "storage.js").read_text(encoding="utf-8")

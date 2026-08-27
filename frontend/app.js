@@ -47,6 +47,9 @@ const elements = {
   emptyResult: document.querySelector("#emptyResult"),
   generatingResult: document.querySelector("#generatingResult"),
   generatedImage: document.querySelector("#generatedImage"),
+  imageLightbox: document.querySelector("#imageLightbox"),
+  lightboxImage: document.querySelector("#lightboxImage"),
+  closeLightbox: document.querySelector("#closeLightbox"),
   resultMeta: document.querySelector("#resultMeta"),
   resultSeed: document.querySelector("#resultSeed"),
   resultModel: document.querySelector("#resultModel"),
@@ -486,6 +489,22 @@ function showResult(result) {
   elements.downloadButton.hidden = false;
 }
 
+function openImageLightbox() {
+  if (!state.resultUrl || elements.generatedImage.hidden || elements.imageLightbox.open) return;
+  elements.lightboxImage.src = state.resultUrl;
+  elements.imageLightbox.showModal();
+}
+
+function activateImageLightbox(event) {
+  if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  openImageLightbox();
+}
+
+function closeImageLightbox() {
+  if (elements.imageLightbox.open) elements.imageLightbox.close();
+}
+
 async function generate(event) {
   event.preventDefault();
   setError();
@@ -575,6 +594,15 @@ elements.reference.addEventListener("change", () => {
 });
 elements.clearReference.addEventListener("click", clearReference);
 elements.clearLocalData.addEventListener("click", clearLocalData);
+elements.generatedImage.addEventListener("click", activateImageLightbox);
+elements.generatedImage.addEventListener("keydown", activateImageLightbox);
+elements.closeLightbox.addEventListener("click", closeImageLightbox);
+elements.imageLightbox.addEventListener("click", (event) => {
+  if (event.target === elements.imageLightbox) closeImageLightbox();
+});
+elements.imageLightbox.addEventListener("close", () => {
+  elements.lightboxImage.removeAttribute("src");
+});
 elements.seed.addEventListener("input", validateSeed);
 elements.prompt.addEventListener("input", () => updateCount(elements.prompt, elements.promptCount));
 elements.negativePrompt.addEventListener("input", () =>
