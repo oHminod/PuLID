@@ -201,6 +201,9 @@ def test_generated_image_opens_an_accessible_fullscreen_lightbox() -> None:
     assert ".image-lightbox[open]" in styles
     assert "width: 100vw" in styles
     assert "height: 100dvh" in styles
+    assert "grid-template-rows: minmax(0, 1fr)" in styles
+    assert "max-height: calc(100dvh - 108px)" in styles
+    assert "max-height: calc(100dvh - 66px)" in styles
     assert "elements.imageLightbox.showModal()" in source
     assert 'elements.generatedImage.addEventListener("click", activateImageLightbox)' in source
     assert 'elements.generatedImage.addEventListener("keydown", activateImageLightbox)' in source
