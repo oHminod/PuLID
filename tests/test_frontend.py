@@ -144,6 +144,15 @@ def test_frontend_persists_settings_and_reference_but_not_output() -> None:
     assert 'artifactStore.delete("last-result")' in storage_source
 
 
+def test_frontend_persists_advanced_settings_disclosure_state() -> None:
+    source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
+
+    assert "advancedOpen: elements.advancedSettings.open" in source
+    assert 'typeof settings.advancedOpen === "boolean"' in source
+    assert "elements.advancedSettings.open = settings.advancedOpen" in source
+    assert 'elements.advancedSettings.addEventListener("toggle", queueSettingsSave)' in source
+
+
 def test_clearing_only_reference_preserves_settings_and_result() -> None:
     app_source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     storage_source = (frontend_directory() / "storage.js").read_text(encoding="utf-8")

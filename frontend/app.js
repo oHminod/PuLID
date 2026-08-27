@@ -54,6 +54,7 @@ const elements = {
   resultSigmas: document.querySelector("#resultSigmas"),
   downloadButton: document.querySelector("#downloadButton"),
   clearLocalData: document.querySelector("#clearLocalData"),
+  advancedSettings: document.querySelector(".advanced"),
   cardColumns: [...document.querySelectorAll(".card-column")],
 };
 
@@ -195,6 +196,7 @@ function collectSettings() {
     method: elements.method.value,
     sigmas: elements.sigmas.value,
     seed: elements.seed.value,
+    advancedOpen: elements.advancedSettings.open,
   };
 }
 
@@ -217,6 +219,9 @@ function applySettings(settings) {
   }
   if (typeof settings.clipSkip2 === "boolean") {
     elements.clipSkip2.checked = settings.clipSkip2;
+  }
+  if (typeof settings.advancedOpen === "boolean") {
+    elements.advancedSettings.open = settings.advancedOpen;
   }
   updateNegativePromptMode();
   updateCount(elements.prompt, elements.promptCount);
@@ -547,6 +552,7 @@ elements.backendUrl.addEventListener("keydown", (event) => {
 elements.form.addEventListener("submit", generate);
 elements.form.addEventListener("input", queueSettingsSave);
 elements.form.addEventListener("change", queueSettingsSave);
+elements.advancedSettings.addEventListener("toggle", queueSettingsSave);
 elements.method.addEventListener("change", () => refreshSigmaOptions());
 elements.negativeMode.addEventListener("change", () =>
   updateNegativePromptMode({ focus: true }),
