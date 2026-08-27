@@ -8,6 +8,7 @@ Ce projet fournit un pipeline Python autonome pour générer des images avec SDX
 
 - Ne jamais télécharger ni copier de poids de modèles dans le dépôt.
 - Conserver tous les modèles et caches volumineux sous `/Volumes/SSD/Documents/PuLID_models`.
+- Traiter `/Users/yvesm/Documents/Projets/rp-bot` et `/Volumes/SSD/Documents/PuLID_models` comme des références strictement en lecture seule. Ne jamais y créer, modifier, déplacer ou supprimer de fichier, ni y exécuter une commande susceptible d'altérer leur contenu, sans demande écrite explicite de l'utilisateur visant le dossier concerné.
 - Configurer les variables de cache externes avant tout import de bibliothèque susceptible de télécharger des fichiers (`torch`, `transformers`, `diffusers`, `huggingface_hub`, `insightface`).
 - Centraliser les chemins dans la configuration. Ne pas coder de chemin de checkpoint en dur dans les modules métier.
 - Les checkpoints SDXL résident sous `/Volumes/SSD/Documents/PuLID_models/checkpoints`. Le checkpoint par défaut est `realvisxlV50_v50LightningBakedvae.safetensors`. Son VAE est intégré : ne pas charger ni exiger de VAE externe.
