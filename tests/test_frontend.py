@@ -121,11 +121,36 @@ def test_frontend_client_sends_every_generation_parameter() -> None:
         "model",
         "method",
         "sigmas",
+        "width",
+        "height",
     }
 
     assert all(f'form.append("{name}"' in source for name in direct_fields)
     assert all(f"{name}:" in source for name in ("cfg", "steps", "strength", "seed"))
     assert "form.append(name, value)" in source
+
+
+def test_resolution_selector_offers_optimal_sdxl_sizes_and_persists_choice() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="resolution"' in html
+    assert '<option value="1024x1024" selected>' in html
+    assert '<optgroup label="Portrait">' in html
+    assert '<optgroup label="Paysage">' in html
+    for resolution in (
+        "896x1152",
+        "832x1216",
+        "768x1344",
+        "640x1536",
+        "1152x896",
+        "1216x832",
+        "1344x768",
+        "1536x640",
+    ):
+        assert f'value="{resolution}"' in html
+    assert "resolution: elements.resolution.value" in source
+    assert "elements.resolution.value = settings.resolution" in source
 
 
 def test_frontend_persists_settings_and_reference_but_not_output() -> None:

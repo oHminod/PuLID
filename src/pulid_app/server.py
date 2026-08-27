@@ -64,6 +64,8 @@ SIGMA_SCHEDULE_ORDER = tuple(
 )
 DEFAULT_WIDTH = 1024
 DEFAULT_HEIGHT = 1024
+MIN_GENERATION_DIMENSION = 64
+MAX_GENERATION_DIMENSION = 2048
 DEFAULT_IDENTITY_STRENGTH = 0.8
 MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 MAX_SEED = 2**63 - 1
@@ -387,6 +389,8 @@ class GenerationService:
         method: str,
         sigmas: str,
         seed: int,
+        width: int = DEFAULT_WIDTH,
+        height: int = DEFAULT_HEIGHT,
     ) -> GeneratedPayload:
         selected_character = character.strip()
         selected_prompt = prompt.strip()
@@ -440,8 +444,8 @@ class GenerationService:
                 guidance_scale=cfg,
                 sampling_method=sampling_method,
                 sigma_schedule=sigma_schedule,
-                width=DEFAULT_WIDTH,
-                height=DEFAULT_HEIGHT,
+                width=width,
+                height=height,
                 identity_strength=strength,
             )
             output = BytesIO()
@@ -691,6 +695,22 @@ def create_app(
         method: Annotated[str, Form(min_length=1)] = DEFAULT_METHOD,
         sigmas: Annotated[str, Form(min_length=1)] = DEFAULT_SIGMAS,
         seed: Annotated[int, Form(ge=-1, le=MAX_SEED)] = 0,
+        width: Annotated[
+            int,
+            Form(
+                ge=MIN_GENERATION_DIMENSION,
+                le=MAX_GENERATION_DIMENSION,
+                multiple_of=8,
+            ),
+        ] = DEFAULT_WIDTH,
+        height: Annotated[
+            int,
+            Form(
+                ge=MIN_GENERATION_DIMENSION,
+                le=MAX_GENERATION_DIMENSION,
+                multiple_of=8,
+            ),
+        ] = DEFAULT_HEIGHT,
     ) -> Response:
         try:
             async with generation_lock:
@@ -707,6 +727,8 @@ def create_app(
                     "method": method,
                     "sigmas": sigmas,
                     "seed": seed,
+                    "width": width,
+                    "height": height,
                 }
                 if embedding_service.uses_accelerator:
                     async with (

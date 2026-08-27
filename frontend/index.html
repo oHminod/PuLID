@@ -261,7 +261,31 @@
                 <p class="section-kicker">Résultat</p>
                 <h2 id="resultTitle">Aperçu</h2>
               </div>
-              <span class="resolution-badge">1024 × 1024</span>
+              <label class="resolution-picker">
+                <span class="sr-only">Résolution de génération</span>
+                <select
+                  class="resolution-badge resolution-select"
+                  id="resolution"
+                  name="resolution"
+                  aria-label="Résolution de génération"
+                >
+                  <optgroup label="Carré">
+                    <option value="1024x1024" selected>1024 × 1024</option>
+                  </optgroup>
+                  <optgroup label="Portrait">
+                    <option value="896x1152">896 × 1152</option>
+                    <option value="832x1216">832 × 1216</option>
+                    <option value="768x1344">768 × 1344</option>
+                    <option value="640x1536">640 × 1536</option>
+                  </optgroup>
+                  <optgroup label="Paysage">
+                    <option value="1152x896">1152 × 896</option>
+                    <option value="1216x832">1216 × 832</option>
+                    <option value="1344x768">1344 × 768</option>
+                    <option value="1536x640">1536 × 640</option>
+                  </optgroup>
+                </select>
+              </label>
             </div>
 
             <div class="result-stage" id="resultStage">

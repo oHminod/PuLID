@@ -353,14 +353,20 @@ Champs du formulaire :
 | `method` | texte | non | `default` | `sampling_methods[].name` renvoyé par `GET /models` |
 | `sigmas` | texte | non | `normal` | `sigma_schedules[].name` compatible avec `method` |
 | `seed` | entier | non | `0` | `0` ou `-1` = aléatoire ; sinon 1 à 2^63−1 |
+| `width` | entier | non | `1024` | Largeur de génération, de 64 à 2048 pixels et multiple de 8 |
+| `height` | entier | non | `1024` | Hauteur de génération, de 64 à 2048 pixels et multiple de 8 |
 
-La résolution est actuellement fixée à `1024 × 1024`. Si `negative_prompt` est
-omis, le prompt négatif par défaut du pipeline est appliqué. Envoyer une chaîne
-vide permet de le désactiver explicitement. `clip_skip_2` accepte les valeurs
-booléennes de formulaire reconnues par FastAPI, notamment `true` et `false`.
-La valeur `true` est traduite en `clip_skip=1` pour Diffusers : elle sélectionne
-`hidden_states[-3]`. La valeur `false` conserve le comportement SDXL natif,
-`hidden_states[-2]`.
+`width` et `height` sont facultatifs afin de préserver les clients existants :
+leur omission conserve la résolution historique `1024 × 1024`. Les résolutions
+SDXL recommandées proposées par le frontend sont `1024 × 1024`, `896 × 1152`,
+`832 × 1216`, `768 × 1344`, `640 × 1536` et leurs équivalents paysage.
+
+Si `negative_prompt` est omis, le prompt négatif par défaut du pipeline est
+appliqué. Envoyer une chaîne vide permet de le désactiver explicitement.
+`clip_skip_2` accepte les valeurs booléennes de formulaire reconnues par
+FastAPI, notamment `true` et `false`. La valeur `true` est traduite en
+`clip_skip=1` pour Diffusers : elle sélectionne `hidden_states[-3]`. La valeur
+`false` conserve le comportement SDXL natif, `hidden_states[-2]`.
 
 Le backend compte séparément les jetons produits par les deux tokenizers de
 SDXL, sans inclure les marqueurs BOS/EOS. Jusqu'à 75 jetons utiles, l'encodage
@@ -389,6 +395,8 @@ curl --fail-with-body \
   --form method=dpmpp_2m_sde \
   --form sigmas=karras \
   --form seed=0 \
+  --form width=832 \
+  --form height=1216 \
   http://127.0.0.1:12693/generate
 ```
 
@@ -433,6 +441,8 @@ type GenerateInput = {
   method: string;
   sigmas: string;
   seed: number;
+  width?: number;
+  height?: number;
 };
 
 export async function generateImage(input: GenerateInput) {
@@ -451,6 +461,8 @@ export async function generateImage(input: GenerateInput) {
   form.append("method", input.method);
   form.append("sigmas", input.sigmas);
   form.append("seed", String(input.seed));
+  if (input.width !== undefined) form.append("width", String(input.width));
+  if (input.height !== undefined) form.append("height", String(input.height));
 
   const response = await fetch("http://127.0.0.1:12693/generate", {
     method: "POST",

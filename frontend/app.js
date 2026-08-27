@@ -52,6 +52,7 @@ const elements = {
   resultModel: document.querySelector("#resultModel"),
   resultMethod: document.querySelector("#resultMethod"),
   resultSigmas: document.querySelector("#resultSigmas"),
+  resolution: document.querySelector("#resolution"),
   downloadButton: document.querySelector("#downloadButton"),
   clearLocalData: document.querySelector("#clearLocalData"),
   advancedSettings: document.querySelector(".advanced"),
@@ -196,6 +197,7 @@ function collectSettings() {
     method: elements.method.value,
     sigmas: elements.sigmas.value,
     seed: elements.seed.value,
+    resolution: elements.resolution.value,
     advancedOpen: elements.advancedSettings.open,
   };
 }
@@ -222,6 +224,12 @@ function applySettings(settings) {
   }
   if (typeof settings.advancedOpen === "boolean") {
     elements.advancedSettings.open = settings.advancedOpen;
+  }
+  if (
+    typeof settings.resolution === "string" &&
+    [...elements.resolution.options].some((option) => option.value === settings.resolution)
+  ) {
+    elements.resolution.value = settings.resolution;
   }
   updateNegativePromptMode();
   updateCount(elements.prompt, elements.promptCount);
@@ -401,6 +409,9 @@ function buildGenerationBody() {
 
   form.append("clip_skip_2", String(elements.clipSkip2.checked));
   form.append("model", elements.model.value);
+  const [width, height] = elements.resolution.value.split("x");
+  form.append("width", width);
+  form.append("height", height);
   const optionalValues = {
     cfg: elements.cfg.value,
     steps: elements.steps.value,

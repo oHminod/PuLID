@@ -787,11 +787,44 @@ textarea::placeholder {
 }
 
 .resolution-badge {
-  padding: 6px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
   font-size: 0.67rem;
+}
+
+.resolution-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.resolution-picker::after {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  pointer-events: none;
+  color: var(--muted);
+  content: "⌄";
+  transform: translateY(-56%);
+}
+
+.resolution-select {
+  min-height: 31px;
+  cursor: pointer;
+  appearance: none;
+  border-color: var(--border);
+  padding: 6px 25px 6px 9px;
+  background: var(--surface-raised);
+}
+
+.resolution-select:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.resolution-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .result-stage {

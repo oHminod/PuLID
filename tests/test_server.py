@@ -760,6 +760,8 @@ def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path)
             "method": "dpmpp_2m_sde",
             "sigmas": "karras",
             "seed": "0",
+            "width": "832",
+            "height": "1216",
         },
     )
 
@@ -791,6 +793,8 @@ def test_generate_returns_png_headers_and_enables_identity_cache(tmp_path: Path)
     assert instance.generate_kwargs["identity_strength"] == 1.25
     assert instance.generate_kwargs["sampling_method"] == "dpmpp_2m_sde"
     assert instance.generate_kwargs["sigma_schedule"] == "karras"
+    assert instance.generate_kwargs["width"] == 832
+    assert instance.generate_kwargs["height"] == 1216
     assert instance.closed is True
     assert {path for path in tmp_path.rglob("*") if path.is_file()} == files_before
     assert not (tmp_path / "outputs").exists()
@@ -817,6 +821,8 @@ def test_generate_accepts_default_method_and_explicit_seed(tmp_path: Path) -> No
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sampling_method"] is None
     assert FakeMemoryGenerator.instances[0].generate_kwargs["sigma_schedule"] is None
     assert FakeMemoryGenerator.instances[0].generate_kwargs["identity_strength"] == 0.8
+    assert FakeMemoryGenerator.instances[0].generate_kwargs["width"] == 1024
+    assert FakeMemoryGenerator.instances[0].generate_kwargs["height"] == 1024
     assert (
         FakeMemoryGenerator.instances[0].generate_kwargs["negative_prompt"]
         == "flaws in the eyes, flaws in the face, low quality, worst quality, "
@@ -923,6 +929,36 @@ def test_generate_rejects_invalid_strength_before_loading_generator(
             "prompt": "portrait",
             "model": "realvisxl",
             "strength": strength,
+        },
+    )
+
+    assert response.status_code == 422
+    assert FakeMemoryGenerator.instances == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("width", "63"),
+        ("width", "1025"),
+        ("height", "2056"),
+    ],
+)
+def test_generate_rejects_invalid_optional_dimensions_before_loading_generator(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    response = _request(
+        _app(tmp_path),
+        "POST",
+        "/generate",
+        files={"reference": ("noemie.png", _image_bytes(), "image/png")},
+        data={
+            "character": "noemie",
+            "prompt": "portrait",
+            "model": "realvisxl",
+            field: value,
         },
     )
 
