@@ -943,7 +943,7 @@ footer p {
     max-height: calc(100vh - 40px);
     max-height: calc(100dvh - 40px);
     overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
     scrollbar-color: var(--border-strong) transparent;
     scrollbar-gutter: stable;
     scrollbar-width: thin;

@@ -58,7 +58,7 @@ def test_wide_layout_cards_scroll_independently() -> None:
     assert ".result-panel" in wide_layout
     assert "max-height: calc(100dvh - 40px)" in wide_layout
     assert "overflow-y: auto" in wide_layout
-    assert "overscroll-behavior-y: contain" in wide_layout
+    assert "overscroll-behavior-y: auto" in wide_layout
     assert "scrollbar-gutter: stable" in wide_layout
 
 
