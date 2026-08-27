@@ -253,8 +253,16 @@ Le formulaire demande une image de référence, le nom du personnage, un prompt
 et un checkpoint. Il permet aussi de régler le prompt négatif, Clip Skip 2, le
 CFG, les steps, la force d’identité, le sampler, les sigmas et la seed.
 
-Le PNG reste dans le navigateur jusqu’à son téléchargement. Contrairement à la
-CLI, le frontend ne crée pas automatiquement de fichier dans `outputs/`.
+Les derniers réglages sont enregistrés dans le `localStorage` du navigateur.
+La photo de référence et le dernier PNG généré sont conservés dans `IndexedDB`
+et automatiquement restaurés au prochain chargement de la page. Le bouton
+**Oublier uniquement la photo** supprime la référence sans modifier les autres
+réglages ni le dernier résultat. Le lien **Effacer les données locales** retire
+l’ensemble de ces données du navigateur.
+
+Contrairement à la CLI, le frontend ne crée pas automatiquement de fichier dans
+`outputs/`. Les données persistées restent propres au navigateur et à l’adresse
+`http://localhost:8888`.
 
 Pour cibler un backend situé ailleurs :
 

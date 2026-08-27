@@ -317,6 +317,29 @@ summary,
   object-fit: cover;
 }
 
+.reference-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inline-action {
+  cursor: pointer;
+  border: 0;
+  padding: 8px 2px 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.inline-action:hover {
+  color: var(--danger);
+}
+
+.inline-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .two-columns,
 .three-columns {
   display: grid;
@@ -588,6 +611,14 @@ textarea::placeholder {
   margin-top: 20px;
 }
 
+.result-persistence {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .button-loader {
   display: none;
   width: 16px;
@@ -748,6 +779,31 @@ footer {
   color: var(--muted);
   font-size: 0.72rem;
   text-align: center;
+}
+
+footer p {
+  margin: 0;
+}
+
+.footer-action {
+  margin-top: 10px;
+  cursor: pointer;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.footer-action:hover {
+  border-bottom-color: var(--muted);
+  color: var(--text);
+}
+
+.footer-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .sr-only {

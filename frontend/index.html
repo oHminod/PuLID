@@ -9,6 +9,7 @@
     />
     <title>PuLID Studio</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="storage.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -86,6 +87,11 @@
                 </span>
                 <img id="referencePreview" alt="Aperçu de la référence sélectionnée" hidden />
               </label>
+              <div class="reference-actions">
+                <button class="inline-action" id="clearReference" type="button" hidden>
+                  Oublier uniquement la photo
+                </button>
+              </div>
 
               <div class="two-columns">
                 <label class="field" for="character">
@@ -245,7 +251,7 @@
               <div class="empty-result" id="emptyResult">
                 <span class="empty-orbit" aria-hidden="true"></span>
                 <strong>Votre création apparaîtra ici</strong>
-                <p>L’image reste dans votre navigateur jusqu’à son téléchargement.</p>
+                <p>La dernière image sera conservée localement dans ce navigateur.</p>
               </div>
               <div class="generating-result" id="generatingResult" hidden>
                 <span class="generation-spinner" aria-hidden="true"></span>
@@ -265,12 +271,19 @@
             <a class="button secondary download-button" id="downloadButton" href="#" download hidden>
               Télécharger le PNG
             </a>
+            <p class="result-persistence" id="resultPersistence" role="status" hidden></p>
           </aside>
         </div>
       </main>
 
       <footer>
-        <p>Interface locale · Les modèles et l’image de référence ne quittent pas votre machine.</p>
+        <p>
+          Interface locale · La référence, les réglages et la dernière génération
+          restent dans ce navigateur.
+        </p>
+        <button class="footer-action" id="clearLocalData" type="button">
+          Effacer les données locales
+        </button>
       </footer>
     </div>
   </body>

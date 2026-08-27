@@ -1,12 +1,15 @@
 const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
 const MAX_SEED = 9223372036854775807n;
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+const SETTINGS_SAVE_DELAY_MS = 180;
+const storage = globalThis.PuLIDStorage;
 
 const state = {
   inventory: null,
   resultUrl: null,
   referenceUrl: null,
   generating: false,
+  settingsSaveTimer: null,
 };
 
 const elements = {
@@ -20,6 +23,8 @@ const elements = {
   uploadZone: document.querySelector("#uploadZone"),
   uploadTitle: document.querySelector("#uploadTitle"),
   uploadHint: document.querySelector("#uploadHint"),
+  clearReference: document.querySelector("#clearReference"),
+  character: document.querySelector("#character"),
   prompt: document.querySelector("#prompt"),
   promptCount: document.querySelector("#promptCount"),
   negativeMode: document.querySelector("#negativeMode"),
@@ -29,6 +34,10 @@ const elements = {
   model: document.querySelector("#model"),
   method: document.querySelector("#method"),
   sigmas: document.querySelector("#sigmas"),
+  clipSkip2: document.querySelector("#clipSkip2"),
+  cfg: document.querySelector("#cfg"),
+  steps: document.querySelector("#steps"),
+  strength: document.querySelector("#strength"),
   seed: document.querySelector("#seed"),
   generateButton: document.querySelector("#generateButton"),
   formError: document.querySelector("#formError"),
@@ -41,6 +50,8 @@ const elements = {
   resultMethod: document.querySelector("#resultMethod"),
   resultSigmas: document.querySelector("#resultSigmas"),
   downloadButton: document.querySelector("#downloadButton"),
+  resultPersistence: document.querySelector("#resultPersistence"),
+  clearLocalData: document.querySelector("#clearLocalData"),
 };
 
 function setConnection(status, label) {
@@ -70,17 +81,72 @@ function fillSelect(select, items, selectedName = null) {
   select.disabled = items.length === 0;
 }
 
-function refreshSigmaOptions() {
+function refreshSigmaOptions(selectedName = elements.sigmas.value) {
   if (!state.inventory) return;
   const method = state.inventory.sampling_methods.find(
     (item) => item.name === elements.method.value,
   );
   const supported = new Set(method?.supported_sigma_schedules ?? ["normal"]);
   const visible = state.inventory.sigma_schedules.filter((item) => supported.has(item.name));
-  fillSelect(elements.sigmas, visible, elements.sigmas.value);
+  fillSelect(elements.sigmas, visible, selectedName);
 }
 
-async function loadInventory() {
+function collectSettings() {
+  return {
+    character: elements.character.value,
+    prompt: elements.prompt.value,
+    negativeMode: elements.negativeMode.value,
+    negativePrompt: elements.negativePrompt.value,
+    clipSkip2: elements.clipSkip2.checked,
+    model: elements.model.value,
+    cfg: elements.cfg.value,
+    steps: elements.steps.value,
+    strength: elements.strength.value,
+    method: elements.method.value,
+    sigmas: elements.sigmas.value,
+    seed: elements.seed.value,
+  };
+}
+
+function applySettings(settings) {
+  if (!settings || typeof settings !== "object") return;
+  const textFields = {
+    character: elements.character,
+    prompt: elements.prompt,
+    negativePrompt: elements.negativePrompt,
+    cfg: elements.cfg,
+    steps: elements.steps,
+    strength: elements.strength,
+    seed: elements.seed,
+  };
+  for (const [name, element] of Object.entries(textFields)) {
+    if (typeof settings[name] === "string") element.value = settings[name];
+  }
+  if (["default", "custom", "disabled"].includes(settings.negativeMode)) {
+    elements.negativeMode.value = settings.negativeMode;
+  }
+  if (typeof settings.clipSkip2 === "boolean") {
+    elements.clipSkip2.checked = settings.clipSkip2;
+  }
+  updateNegativePromptMode();
+  updateCount(elements.prompt, elements.promptCount);
+  updateCount(elements.negativePrompt, elements.negativeCount);
+  validateSeed();
+}
+
+function persistSettings() {
+  return storage?.saveSettings(collectSettings()) ?? false;
+}
+
+function queueSettingsSave() {
+  if (state.settingsSaveTimer !== null) window.clearTimeout(state.settingsSaveTimer);
+  state.settingsSaveTimer = window.setTimeout(() => {
+    state.settingsSaveTimer = null;
+    persistSettings();
+  }, SETTINGS_SAVE_DELAY_MS);
+}
+
+async function loadInventory(preferredSettings = collectSettings()) {
   setError();
   setConnection("loading", "Connexion au backend…");
   elements.generateButton.disabled = true;
@@ -98,10 +164,11 @@ async function loadInventory() {
       throw new Error("Aucun checkpoint SDXL n’est disponible dans le backend.");
     }
     state.inventory = inventory;
-    fillSelect(elements.model, inventory.models);
-    fillSelect(elements.method, inventory.sampling_methods);
-    refreshSigmaOptions();
+    fillSelect(elements.model, inventory.models, preferredSettings.model);
+    fillSelect(elements.method, inventory.sampling_methods, preferredSettings.method);
+    refreshSigmaOptions(preferredSettings.sigmas);
     elements.generateButton.disabled = false;
+    persistSettings();
     setConnection("connected", `${inventory.models.length} modèle${inventory.models.length > 1 ? "s" : ""} disponible${inventory.models.length > 1 ? "s" : ""}`);
   } catch (error) {
     state.inventory = null;
@@ -117,14 +184,14 @@ function updateCount(input, output) {
   output.textContent = String(input.value.length);
 }
 
-function updateNegativePromptMode() {
+function updateNegativePromptMode({ focus = false } = {}) {
   const custom = elements.negativeMode.value === "custom";
   elements.negativePromptField.hidden = !custom;
   elements.negativePrompt.disabled = !custom;
-  if (custom) elements.negativePrompt.focus();
+  if (custom && focus) elements.negativePrompt.focus();
 }
 
-function updateReferencePreview() {
+function updateReferencePreview(statusText = "Cliquer pour remplacer") {
   const file = elements.reference.files?.[0];
   if (state.referenceUrl) URL.revokeObjectURL(state.referenceUrl);
   state.referenceUrl = null;
@@ -133,20 +200,73 @@ function updateReferencePreview() {
   if (!file) {
     elements.uploadTitle.innerHTML = "Ajouter un portrait <span>*</span>";
     elements.uploadHint.textContent = "JPEG, PNG, WebP, BMP ou TIFF · 20 Mio max.";
+    elements.clearReference.hidden = true;
     return;
   }
 
   elements.uploadTitle.textContent = file.name;
-  elements.uploadHint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} Mio · Cliquer pour remplacer`;
+  elements.uploadHint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} Mio · ${statusText}`;
   state.referenceUrl = URL.createObjectURL(file);
   elements.referencePreview.src = state.referenceUrl;
   elements.referencePreview.hidden = false;
+  elements.clearReference.hidden = false;
+}
+
+async function persistReference() {
+  const file = elements.reference.files?.[0];
+  if (!file) return;
+  if (file.size === 0 || file.size > MAX_REFERENCE_BYTES) {
+    updateReferencePreview("non valide · non conservée");
+    return;
+  }
+  try {
+    await storage.saveReference(file);
+    if (elements.reference.files?.[0] === file) {
+      updateReferencePreview("conservée localement · cliquer pour remplacer");
+    }
+  } catch {
+    if (elements.reference.files?.[0] === file) {
+      updateReferencePreview("non persistée · cliquer pour remplacer");
+    }
+  }
+}
+
+async function restoreReference() {
+  try {
+    const saved = await storage.loadReference();
+    if (!saved?.blob || !(saved.blob instanceof Blob)) return;
+    const file = new File([saved.blob], saved.filename || "reference.png", {
+      type: saved.contentType || saved.blob.type,
+      lastModified: Number(saved.lastModified) || Date.now(),
+    });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    elements.reference.files = transfer.files;
+    validateReference();
+    updateReferencePreview("restaurée localement · cliquer pour remplacer");
+  } catch {
+    // Le formulaire reste utilisable si la restauration locale est indisponible.
+  }
+}
+
+async function clearReference() {
+  setError();
+  try {
+    await storage.clearReference();
+    elements.reference.value = "";
+    elements.reference.setCustomValidity("");
+    updateReferencePreview();
+  } catch (error) {
+    setError(error.message || "Impossible d’effacer la photo conservée localement.");
+  }
 }
 
 function validateReference() {
   const file = elements.reference.files?.[0];
   if (!file) {
     elements.reference.setCustomValidity("Ajoutez une image de référence.");
+  } else if (file.size === 0) {
+    elements.reference.setCustomValidity("L’image de référence est vide.");
   } else if (file.size > MAX_REFERENCE_BYTES) {
     elements.reference.setCustomValidity("L’image de référence dépasse 20 Mio.");
   } else {
@@ -175,7 +295,7 @@ function validateSeed() {
 function buildGenerationBody() {
   const form = new FormData();
   form.append("reference", elements.reference.files[0]);
-  form.append("character", document.querySelector("#character").value.trim());
+  form.append("character", elements.character.value.trim());
   form.append("prompt", elements.prompt.value.trim());
 
   if (elements.negativeMode.value === "custom") {
@@ -184,12 +304,12 @@ function buildGenerationBody() {
     form.append("negative_prompt", "");
   }
 
-  form.append("clip_skip_2", String(document.querySelector("#clipSkip2").checked));
+  form.append("clip_skip_2", String(elements.clipSkip2.checked));
   form.append("model", elements.model.value);
   const optionalValues = {
-    cfg: document.querySelector("#cfg").value,
-    steps: document.querySelector("#steps").value,
-    strength: document.querySelector("#strength").value,
+    cfg: elements.cfg.value,
+    steps: elements.steps.value,
+    strength: elements.strength.value,
     seed: elements.seed.value.trim(),
   };
   for (const [name, value] of Object.entries(optionalValues)) {
@@ -232,22 +352,57 @@ function showGenerating(active) {
   }
 }
 
-function showResult(response, blob) {
+function resultFromResponse(response, blob) {
+  return {
+    blob,
+    filename: filenameFromResponse(response),
+    seed: response.headers.get("X-Generation-Seed") ?? "—",
+    model: response.headers.get("X-SDXL-Model") ?? elements.model.value,
+    method: response.headers.get("X-Sampling-Method") ?? elements.method.value,
+    sigmas: response.headers.get("X-Sigma-Schedule") ?? elements.sigmas.value,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function showResult(result, { restored = false } = {}) {
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
-  state.resultUrl = URL.createObjectURL(blob);
-  const filename = filenameFromResponse(response);
+  state.resultUrl = URL.createObjectURL(result.blob);
   elements.generatedImage.src = state.resultUrl;
   elements.generatedImage.hidden = false;
   elements.emptyResult.hidden = true;
   elements.generatingResult.hidden = true;
-  elements.resultSeed.textContent = response.headers.get("X-Generation-Seed") ?? "—";
-  elements.resultModel.textContent = response.headers.get("X-SDXL-Model") ?? elements.model.value;
-  elements.resultMethod.textContent = response.headers.get("X-Sampling-Method") ?? elements.method.value;
-  elements.resultSigmas.textContent = response.headers.get("X-Sigma-Schedule") ?? elements.sigmas.value;
+  elements.resultSeed.textContent = result.seed ?? "—";
+  elements.resultModel.textContent = result.model ?? "—";
+  elements.resultMethod.textContent = result.method ?? "—";
+  elements.resultSigmas.textContent = result.sigmas ?? "—";
   elements.resultMeta.hidden = false;
   elements.downloadButton.href = state.resultUrl;
-  elements.downloadButton.download = filename;
+  elements.downloadButton.download = result.filename || "generation.png";
   elements.downloadButton.hidden = false;
+  elements.resultPersistence.textContent = restored
+    ? "Dernière génération restaurée depuis ce navigateur."
+    : "Conservation locale de la dernière génération…";
+  elements.resultPersistence.hidden = false;
+}
+
+async function persistResult(result) {
+  try {
+    await storage.saveLastResult(result);
+    elements.resultPersistence.textContent = "Dernière génération conservée localement.";
+  } catch {
+    elements.resultPersistence.textContent =
+      "Aperçu disponible pour cette session, mais sa conservation locale a échoué.";
+  }
+}
+
+async function restoreLastResult() {
+  try {
+    const result = await storage.loadLastResult();
+    if (!result?.blob || !(result.blob instanceof Blob)) return;
+    showResult(result, { restored: true });
+  } catch {
+    // L'absence d'IndexedDB ne bloque jamais la génération.
+  }
 }
 
 async function generate(event) {
@@ -262,6 +417,7 @@ async function generate(event) {
   }
   if (!state.inventory || state.generating) return;
 
+  persistSettings();
   showGenerating(true);
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -272,7 +428,9 @@ async function generate(event) {
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(await responseError(response));
-    showResult(response, await response.blob());
+    const result = resultFromResponse(response, await response.blob());
+    showResult(result);
+    await persistResult(result);
   } catch (error) {
     elements.generatingResult.hidden = true;
     if (!state.resultUrl) elements.emptyResult.hidden = false;
@@ -298,22 +456,44 @@ function useDroppedFile(event) {
   elements.reference.files = transfer.files;
   validateReference();
   updateReferencePreview();
+  persistReference();
 }
 
-elements.reconnectButton.addEventListener("click", loadInventory);
+async function clearLocalData() {
+  const confirmed = window.confirm(
+    "Effacer la photo de référence, la dernière génération et tous les réglages sauvegardés ?",
+  );
+  if (!confirmed) return;
+  setError();
+  try {
+    await storage.clearAll();
+    window.location.reload();
+  } catch (error) {
+    setError(error.message || "Impossible d’effacer les données locales.");
+  }
+}
+
+elements.reconnectButton.addEventListener("click", () => loadInventory(collectSettings()));
 elements.backendUrl.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    loadInventory();
+    loadInventory(collectSettings());
   }
 });
 elements.form.addEventListener("submit", generate);
-elements.method.addEventListener("change", refreshSigmaOptions);
-elements.negativeMode.addEventListener("change", updateNegativePromptMode);
+elements.form.addEventListener("input", queueSettingsSave);
+elements.form.addEventListener("change", queueSettingsSave);
+elements.method.addEventListener("change", () => refreshSigmaOptions());
+elements.negativeMode.addEventListener("change", () =>
+  updateNegativePromptMode({ focus: true }),
+);
 elements.reference.addEventListener("change", () => {
   validateReference();
   updateReferencePreview();
+  persistReference();
 });
+elements.clearReference.addEventListener("click", clearReference);
+elements.clearLocalData.addEventListener("click", clearLocalData);
 elements.seed.addEventListener("input", validateSeed);
 elements.prompt.addEventListener("input", () => updateCount(elements.prompt, elements.promptCount));
 elements.negativePrompt.addEventListener("input", () =>
@@ -328,6 +508,7 @@ elements.uploadZone.addEventListener("dragleave", () =>
 );
 elements.uploadZone.addEventListener("drop", useDroppedFile);
 window.addEventListener("beforeunload", () => {
+  persistSettings();
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
   if (state.referenceUrl) URL.revokeObjectURL(state.referenceUrl);
 });
@@ -335,6 +516,8 @@ window.addEventListener("beforeunload", () => {
 updateNegativePromptMode();
 
 async function initialize() {
+  const savedSettings = storage?.loadSettings() ?? null;
+  applySettings(savedSettings);
   try {
     const response = await fetch("/frontend-config.json", { cache: "no-store" });
     if (response.ok) {
@@ -344,7 +527,11 @@ async function initialize() {
   } catch {
     // La valeur par défaut reste affichée si la configuration est indisponible.
   }
-  await loadInventory();
+  await Promise.all([
+    loadInventory(savedSettings ?? collectSettings()),
+    restoreReference(),
+    restoreLastResult(),
+  ]);
 }
 
 initialize();
