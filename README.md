@@ -255,8 +255,8 @@ CFG, les steps, la force d’identité, le sampler, les sigmas et la seed.
 
 Les derniers réglages sont enregistrés dans le `localStorage` du navigateur.
 La photo de référence est conservée dans `IndexedDB` et automatiquement
-restaurée au prochain chargement de la page. Le bouton **Oublier uniquement la
-photo** supprime cette référence sans modifier les autres réglages. Le lien
+restaurée au prochain chargement de la page. Le bouton **Oublier la photo**
+supprime cette référence sans modifier les autres réglages. Le lien
 **Effacer les données locales** retire la référence et l’ensemble des réglages
 du navigateur.
 

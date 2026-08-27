@@ -49,6 +49,28 @@ def test_wide_layout_separates_primary_controls_and_result_cards() -> None:
     assert "grid-template-columns:" in styles
 
 
+def test_sdxl_model_selector_lives_in_advanced_controls() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    controls_start = html.index('<section class="generation-controls card">')
+    controls_end = html.index("</section>", controls_start)
+    model_position = html.index('id="model"')
+
+    assert controls_start < model_position < controls_end
+
+
+def test_character_and_clear_reference_share_compact_row() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
+    row_start = html.index('<div class="identity-details">')
+    row_end = html.index("</div>", html.index("</div>", row_start) + 1)
+    row = html[row_start:row_end]
+
+    assert 'id="character"' in row
+    assert 'id="clearReference"' in row
+    assert "Oublier la photo" in row
+    assert "grid-template-columns: minmax(0, 1fr) max-content" in styles
+
+
 def test_frontend_client_sends_every_generation_parameter() -> None:
     source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     direct_fields = {

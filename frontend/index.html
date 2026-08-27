@@ -87,13 +87,7 @@
                 </span>
                 <img id="referencePreview" alt="Aperçu de la référence sélectionnée" hidden />
               </label>
-              <div class="reference-actions">
-                <button class="inline-action" id="clearReference" type="button" hidden>
-                  Oublier uniquement la photo
-                </button>
-              </div>
-
-              <div class="two-columns">
+              <div class="identity-details">
                 <label class="field" for="character">
                   <span>Nom du personnage <b aria-hidden="true">*</b></span>
                   <input
@@ -107,12 +101,11 @@
                   />
                 </label>
 
-                <label class="field" for="model">
-                  <span>Modèle SDXL <b aria-hidden="true">*</b></span>
-                  <select id="model" name="model" required disabled>
-                    <option value="">Chargement des modèles…</option>
-                  </select>
-                </label>
+                <div class="reference-actions">
+                  <button class="inline-action" id="clearReference" type="button" hidden>
+                    Oublier la photo
+                  </button>
+                </div>
               </div>
             </fieldset>
 
@@ -167,6 +160,13 @@
               </summary>
 
               <div class="advanced-content">
+                <label class="field advanced-model" for="model">
+                  <span>Modèle SDXL <b aria-hidden="true">*</b></span>
+                  <select id="model" name="model" required disabled>
+                    <option value="">Chargement des modèles…</option>
+                  </select>
+                </label>
+
                 <div class="toggle-row">
                   <span>
                     <strong>Clip skip 2</strong>
