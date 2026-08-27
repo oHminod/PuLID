@@ -939,6 +939,7 @@ textarea::placeholder {
       minmax(240px, 0.58fr)
       minmax(360px, 1fr)
       minmax(340px, 0.92fr);
+    padding-bottom: 40px;
   }
 
   .card-column {

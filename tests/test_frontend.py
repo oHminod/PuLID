@@ -62,6 +62,7 @@ def test_wide_layout_scrolls_columns_without_card_scrollbars() -> None:
     assert ".card-column" in wide_layout
     assert ".card-column.is-column-pinned > .card" in wide_layout
     assert "position: fixed" in wide_layout
+    assert "padding-bottom: 40px" in wide_layout
     assert "max-height:" not in wide_layout
     assert "overflow-y:" not in wide_layout
     assert "scrollbar" not in wide_layout
