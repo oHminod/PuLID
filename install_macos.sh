@@ -187,7 +187,7 @@ echo "Installation ou mise à jour de PuLID et de ses extras..."
 "${UV_EXE}" pip install \
   --python "${VENV_PYTHON}" \
   --extra-index-url "${LLAMA_CPP_METAL_INDEX}" \
-  --only-binary llama-cpp-python \
+  --only-binary insightface,llama-cpp-python \
   -e ".[inference,pulid,server,embeddings,dev]"
 
 echo

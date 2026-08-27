@@ -54,8 +54,7 @@ le CPU. Sur macOS, la détection faciale InsightFace reste exécutée sur CPU.
 - sur macOS, un Mac Apple Silicon ;
 - sous Windows, un GPU NVIDIA et un pilote compatible avec CUDA 13 ;
 - au moins 20 Go disponibles, davantage si plusieurs checkpoints SDXL sont
-  installés ;
-- sous Windows, Microsoft C++ Build Tools si InsightFace doit être compilé.
+  installés.
 
 Les modèles sont volumineux et ne sont pas versionnés avec le projet.
 L’installateur propose par défaut un dossier `PuLID_models` à la racine du
@@ -96,35 +95,20 @@ Le script installe l’environnement Python, les dépendances CUDA et les modèl
 puis tente de configurer le pare-feu Windows pour le port `12693` sur les
 réseaux privés.
 
-#### Si l’installation d’InsightFace échoue
+InsightFace 1.0.1 est installé depuis sa wheel officielle sans compilation
+locale. Microsoft C++ Build Tools n'est donc plus un prérequis ; l'installateur
+échoue explicitement si cette wheel n'est pas disponible au lieu de compiler le
+paquet depuis ses sources.
 
-Si l’installation s’arrête avec une erreur indiquant que Microsoft Visual C++
-14 ou `cl.exe` est requis, ou qu’une wheel InsightFace ne peut pas être
-compilée :
+#### Licence d’AntelopeV2
 
-1. ouvrez la page officielle
-   [Téléchargements Visual Studio](https://visualstudio.microsoft.com/downloads/) ;
-2. dans **Outils pour Visual Studio**, téléchargez **Build Tools for Visual
-   Studio** dans sa version stable actuelle ;
-3. exécutez l’installateur en tant qu’administrateur ;
-4. dans l’onglet **Charges de travail**, sélectionnez **Développement Desktop en
-   C++** (`Desktop development with C++`) ;
-5. conservez les composants recommandés et vérifiez que les outils MSVC pour
-   x64/x86 ainsi qu’un SDK Windows récent sont sélectionnés ;
-6. cliquez sur **Installer**, puis redémarrez Windows si l’installateur le
-   demande ;
-7. ouvrez un nouveau terminal dans le dossier PuLID et relancez :
-
-   ```bat
-   install_windows.bat
-   ```
-
-Si Build Tools est déjà présent, ouvrez **Visual Studio Installer**, choisissez
-**Modifier**, puis ajoutez la charge de travail **Développement Desktop en
-C++**. Le simple **Microsoft Visual C++ Redistributable** ne suffit pas : il
-installe les bibliothèques d’exécution, mais pas le compilateur. La procédure
-Microsoft détaillée est disponible dans
-[Installer les outils Microsoft C++](https://learn.microsoft.com/cpp/overview/acquire-msvc?view=msvc-170).
+Avant le premier téléchargement, l’installateur indique que les poids
+AntelopeV2 sont réservés à la recherche non commerciale et demande une
+acceptation explicite. Tout usage commercial exige une licence distincte auprès
+d’InsightFace. Consultez les
+[conditions officielles](https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md).
+L’option `--accept-insightface-license` est réservée aux installations
+automatisées où ces conditions ont déjà été acceptées.
 
 ### 4. Choisir le checkpoint SDXL
 

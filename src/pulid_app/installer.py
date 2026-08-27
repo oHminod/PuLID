@@ -38,6 +38,9 @@ from pulid_app.paths import (
 
 
 MODELS_DIRECTORY_NAME = "PuLID_models"
+INSIGHTFACE_LICENSE_URL = (
+    "https://github.com/deepinsight/insightface/blob/master/server/LICENSING.md"
+)
 SDXL_CONFIG_REPOSITORY = "stabilityai/stable-diffusion-xl-base-1.0"
 SDXL_CONFIG_DIRECTORY = "sdxl/stable-diffusion-xl-base-1.0-config"
 SDXL_CONFIG_PATTERNS = (
@@ -415,6 +418,38 @@ def _antelope_is_ready(models_root: Path) -> bool:
     )
 
 
+def confirm_antelope_license(
+    models_root: Path,
+    console: Console,
+    *,
+    accepted: bool = False,
+    input_fn: Callable[[str], str] = input,
+) -> bool:
+    """Exige l'acceptation de la licence avant le téléchargement d'AntelopeV2."""
+
+    if _antelope_is_ready(models_root):
+        return True
+    console.print()
+    console.print("[bold yellow]Licence des modèles InsightFace AntelopeV2[/]")
+    console.print(
+        "Les poids AntelopeV2 sont fournis uniquement pour la recherche "
+        "non commerciale. Leur usage commercial exige une licence distincte."
+    )
+    console.print(f"Conditions officielles : {INSIGHTFACE_LICENSE_URL}")
+    if accepted:
+        return False
+    if not ask_yes_no(
+        "Acceptez-vous ces conditions pour télécharger AntelopeV2 ?",
+        default=False,
+        input_fn=input_fn,
+    ):
+        raise InstallerError(
+            "La licence InsightFace n'a pas été acceptée ; "
+            "AntelopeV2 ne sera pas téléchargé."
+        )
+    return False
+
+
 def install_antelope_archive(models_root: Path, archive_path: Path) -> None:
     """Extrait uniquement les cinq ONNX attendus et vérifie chaque empreinte."""
 
@@ -439,8 +474,18 @@ def install_antelope_archive(models_root: Path, archive_path: Path) -> None:
         raise InstallerError(f"Archive AntelopeV2 invalide : {archive_path} ({exc})") from exc
 
 
-def ensure_antelope(models_root: Path, console: Console) -> Path:
-    if _antelope_is_ready(models_root):
+def ensure_antelope(
+    models_root: Path,
+    console: Console,
+    *,
+    already_ready: bool | None = None,
+) -> Path:
+    ready = (
+        already_ready
+        if already_ready is not None
+        else _antelope_is_ready(models_root)
+    )
+    if ready:
         console.print("[green]✓[/] InsightFace AntelopeV2 déjà présent")
         return models_root / "antelopev2"
     archive = ensure_http_asset(models_root, ANTELOPE_ARCHIVE, console)
@@ -698,9 +743,10 @@ def prepare_required_assets(
     console: Console,
     *,
     force_configs: bool = False,
+    antelope_ready: bool | None = None,
 ) -> None:
     ensure_huggingface_asset(models_root, PULID_CHECKPOINT, console)
-    ensure_antelope(models_root, console)
+    ensure_antelope(models_root, console, already_ready=antelope_ready)
     for asset in FACEXLIB_ASSETS:
         ensure_http_asset(models_root, asset, console)
     ensure_huggingface_asset(models_root, BGE_CHECKPOINT, console)
@@ -746,6 +792,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Retélécharge les petits fichiers de configuration SDXL.",
     )
+    parser.add_argument(
+        "--accept-insightface-license",
+        action="store_true",
+        help=(
+            "Accepte sans question la licence non commerciale des modèles "
+            "InsightFace AntelopeV2."
+        ),
+    )
     return parser
 
 
@@ -768,6 +822,11 @@ def run_installation(args: argparse.Namespace, console: Console) -> int:
         (models_root / relative).mkdir(parents=True, exist_ok=True)
 
     console.print(f"Racine des modèles : [bold cyan]{models_root}[/]")
+    antelope_ready = confirm_antelope_license(
+        models_root,
+        console,
+        accepted=args.accept_insightface_license,
+    )
     preferred_checkpoint = (
         configured_checkpoint
         if configured_root == models_root and configured_checkpoint is not None
@@ -779,7 +838,12 @@ def run_installation(args: argparse.Namespace, console: Console) -> int:
         mode=args.sdxl,
         preferred_checkpoint=preferred_checkpoint,
     )
-    prepare_required_assets(models_root, console, force_configs=args.force_configs)
+    prepare_required_assets(
+        models_root,
+        console,
+        force_configs=args.force_configs,
+        antelope_ready=antelope_ready,
+    )
     local_config = write_local_config(models_root, checkpoint)
     console.print()
     console.print("[bold green]Installation des modèles terminée.[/]")
@@ -787,7 +851,7 @@ def run_installation(args: argparse.Namespace, console: Console) -> int:
     console.print(f"Configuration locale : [cyan]{local_config}[/]")
     console.print(
         "AntelopeV2 est distribué pour la recherche non commerciale ; "
-        "consultez la licence InsightFace avant tout autre usage."
+        f"conditions : {INSIGHTFACE_LICENSE_URL}"
     )
     return 0
 

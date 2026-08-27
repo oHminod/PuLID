@@ -16,6 +16,7 @@ from pulid_app.installer import (
     HuggingFaceAsset,
     InstallerError,
     choose_checkpoint,
+    confirm_antelope_license,
     ensure_huggingface_asset,
     find_existing_models_root,
     install_antelope_archive,
@@ -180,6 +181,46 @@ def test_install_antelope_archive_replaces_only_managed_files(
 
     assert {name: (destination / name).read_bytes() for name in files} == files
     assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_antelope_license_must_be_accepted_before_download(tmp_path: Path) -> None:
+    console = _console()
+
+    with pytest.raises(InstallerError, match="n'a pas été acceptée"):
+        confirm_antelope_license(
+            tmp_path,
+            console,
+            input_fn=lambda _prompt: "non",
+        )
+
+    assert "recherche non commerciale" in console.file.getvalue()
+    confirm_antelope_license(
+        tmp_path,
+        _console(),
+        accepted=True,
+        input_fn=lambda _prompt: pytest.fail("aucune question attendue"),
+    )
+
+
+def test_existing_antelope_does_not_repeat_license_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = b"model"
+    monkeypatch.setattr(installer, "ANTELOPEV2_REQUIRED_FILES", {"model.onnx"})
+    monkeypatch.setattr(
+        installer,
+        "ANTELOPE_FILE_SHA256",
+        {"model.onnx": _digest(content)},
+    )
+    model = tmp_path / "antelopev2" / "model.onnx"
+    model.parent.mkdir()
+    model.write_bytes(content)
+
+    confirm_antelope_license(
+        tmp_path,
+        _console(),
+        input_fn=lambda _prompt: pytest.fail("aucune question attendue"),
+    )
 
 
 def test_choose_checkpoint_uses_numbered_selection(tmp_path: Path) -> None:

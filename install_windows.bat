@@ -156,7 +156,7 @@ copy /Y "%LLAMA_CPP_PORTABLE_CPU_DLL%" "%LLAMA_CPP_LIB_DIR%\ggml-cpu.dll" >nul
 if errorlevel 1 goto :llama_portable_error
 
 echo Installation de PuLID et du serveur HTTP...
-"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary insightface,llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
 if errorlevel 1 goto :dependency_error
 
 echo.
@@ -211,8 +211,7 @@ goto :error_exit
 
 :dependency_error
 echo [ERREUR] Installation des dependances impossible.
-echo Si l'erreur concerne InsightFace, installez Microsoft C++ Build Tools
-echo avec la charge de travail "Desktop development with C++", puis relancez ce script.
+echo InsightFace doit provenir de sa wheel officielle, sans Microsoft C++ Build Tools.
 echo Le runtime GGUF doit provenir de la wheel CUDA 13.0 indiquee par le script.
 goto :error_exit
 
