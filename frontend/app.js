@@ -2,7 +2,10 @@ const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
 const MAX_SEED = 9223372036854775807n;
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 const SETTINGS_SAVE_DELAY_MS = 180;
+const WIDE_LAYOUT_QUERY = "(min-width: 1180px)";
+const STICKY_COLUMN_TOP_PX = 20;
 const storage = globalThis.PuLIDStorage;
+const wideLayout = window.matchMedia(WIDE_LAYOUT_QUERY);
 
 const state = {
   inventory: null,
@@ -51,7 +54,91 @@ const elements = {
   resultSigmas: document.querySelector("#resultSigmas"),
   downloadButton: document.querySelector("#downloadButton"),
   clearLocalData: document.querySelector("#clearLocalData"),
+  cardColumns: [...document.querySelectorAll(".card-column")],
 };
+
+const columnScrollState = new WeakMap(
+  elements.cardColumns.map((column) => [column, { offset: 0, maxOffset: 0 }]),
+);
+let columnLayoutFrame = null;
+
+function resetColumnLayout(column, scrollState) {
+  scrollState.offset = 0;
+  scrollState.maxOffset = 0;
+  column.scrollTop = 0;
+  column.classList.remove("is-column-stuck", "is-column-pinned");
+  for (const property of [
+    "--column-height",
+    "--column-left",
+    "--column-width",
+    "--column-offset",
+  ]) {
+    column.style.removeProperty(property);
+  }
+}
+
+function updateColumnLayout() {
+  columnLayoutFrame = null;
+  for (const column of elements.cardColumns) {
+    const scrollState = columnScrollState.get(column);
+    const card = column.firstElementChild;
+    if (!scrollState || !card || !wideLayout.matches) {
+      if (scrollState) resetColumnLayout(column, scrollState);
+      continue;
+    }
+
+    const columnBounds = column.getBoundingClientRect();
+    const cardHeight = card.getBoundingClientRect().height;
+    const visibleHeight = Math.max(0, window.innerHeight - STICKY_COLUMN_TOP_PX * 2);
+    scrollState.maxOffset = Math.max(0, cardHeight - visibleHeight);
+    scrollState.offset = Math.min(scrollState.offset, scrollState.maxOffset);
+
+    const shouldPin = columnBounds.top <= STICKY_COLUMN_TOP_PX + 1;
+    if (!shouldPin) scrollState.offset = 0;
+    column.style.setProperty("--column-height", `${Math.ceil(cardHeight)}px`);
+    column.style.setProperty("--column-left", `${columnBounds.left}px`);
+    column.style.setProperty("--column-width", `${columnBounds.width}px`);
+    column.style.setProperty("--column-offset", `${scrollState.offset}px`);
+    column.classList.toggle("is-column-pinned", shouldPin);
+  }
+}
+
+function queueColumnLayoutUpdate() {
+  if (columnLayoutFrame !== null) return;
+  columnLayoutFrame = window.requestAnimationFrame(updateColumnLayout);
+}
+
+function wheelDeltaInPixels(event) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * window.innerHeight;
+  return event.deltaY;
+}
+
+function scrollPinnedColumn(event) {
+  const column = event.currentTarget;
+  const scrollState = columnScrollState.get(column);
+  if (!wideLayout.matches || !column.classList.contains("is-column-pinned") || !scrollState) {
+    return;
+  }
+
+  const nextOffset = Math.max(
+    0,
+    Math.min(scrollState.maxOffset, scrollState.offset + wheelDeltaInPixels(event)),
+  );
+  if (nextOffset === scrollState.offset) return;
+  event.preventDefault();
+  scrollState.offset = nextOffset;
+  column.style.setProperty("--column-offset", `${nextOffset}px`);
+}
+
+const columnResizeObserver =
+  "ResizeObserver" in window
+    ? new ResizeObserver(queueColumnLayoutUpdate)
+    : null;
+for (const column of elements.cardColumns) {
+  column.addEventListener("wheel", scrollPinnedColumn, { passive: false });
+  if (column.firstElementChild) columnResizeObserver?.observe(column.firstElementChild);
+}
 
 function setConnection(status, label) {
   elements.connectionState.className = `connection-state ${status}`;
@@ -480,6 +567,9 @@ elements.uploadZone.addEventListener("dragleave", () =>
   elements.uploadZone.classList.remove("dragging"),
 );
 elements.uploadZone.addEventListener("drop", useDroppedFile);
+window.addEventListener("scroll", queueColumnLayoutUpdate, { passive: true });
+window.addEventListener("resize", queueColumnLayoutUpdate, { passive: true });
+wideLayout.addEventListener("change", queueColumnLayoutUpdate);
 window.addEventListener("beforeunload", () => {
   persistSettings();
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
@@ -487,6 +577,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 updateNegativePromptMode();
+updateColumnLayout();
 
 async function initialize() {
   const savedSettings = storage?.loadSettings() ?? null;

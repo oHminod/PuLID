@@ -199,17 +199,25 @@ summary,
   padding: 26px;
 }
 
-.primary-settings {
+.card-column {
+  min-width: 0;
+}
+
+.card-column > .card {
+  width: 100%;
+}
+
+.primary-column {
   grid-column: 1;
   grid-row: 1;
 }
 
-.generation-controls {
+.generation-column {
   grid-column: 1;
   grid-row: 2;
 }
 
-.result-panel {
+.result-column {
   grid-column: 2;
   grid-row: 1 / span 2;
   position: sticky;
@@ -934,55 +942,34 @@ footer p {
       minmax(340px, 0.92fr);
   }
 
-  .primary-settings,
-  .generation-controls,
-  .result-panel {
-    position: sticky;
-    top: 20px;
+  .card-column {
+    position: relative;
+    top: auto;
     align-self: start;
-    max-height: calc(100vh - 40px);
-    max-height: calc(100dvh - 40px);
-    overflow-y: auto;
-    overscroll-behavior-y: auto;
-    scrollbar-color: var(--border-strong) transparent;
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
+    min-height: var(--column-height, auto);
   }
 
-  .generation-controls {
+  .card-column.is-column-pinned > .card {
+    position: fixed;
+    z-index: 5;
+    top: calc(20px - var(--column-offset, 0px));
+    left: var(--column-left);
+    width: var(--column-width);
+  }
+
+  .generation-column {
     grid-column: 1;
     grid-row: 1;
   }
 
-  .primary-settings {
+  .primary-column {
     grid-column: 2;
     grid-row: 1;
   }
 
-  .result-panel {
+  .result-column {
     grid-column: 3;
     grid-row: 1;
-  }
-
-  .primary-settings::-webkit-scrollbar,
-  .generation-controls::-webkit-scrollbar,
-  .result-panel::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .primary-settings::-webkit-scrollbar-track,
-  .generation-controls::-webkit-scrollbar-track,
-  .result-panel::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .primary-settings::-webkit-scrollbar-thumb,
-  .generation-controls::-webkit-scrollbar-thumb,
-  .result-panel::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
-    border: 2px solid transparent;
-    border-radius: 999px;
-    background-clip: content-box;
   }
 }
 
@@ -991,13 +978,11 @@ footer p {
     grid-template-columns: 1fr;
   }
 
-  .result-panel {
+  .result-column {
     position: static;
   }
 
-  .primary-settings,
-  .generation-controls,
-  .result-panel {
+  .card-column {
     grid-column: 1;
     grid-row: auto;
   }

@@ -45,21 +45,31 @@ def test_wide_layout_separates_primary_controls_and_result_cards() -> None:
     assert 'class="primary-settings card"' in html
     assert 'class="generation-controls card"' in html
     assert 'class="result-panel card"' in html
+    assert 'class="card-column primary-column"' in html
+    assert 'class="card-column generation-column"' in html
+    assert 'class="card-column result-column"' in html
     assert "@media (min-width: 1180px)" in styles
     assert "grid-template-columns:" in styles
 
 
-def test_wide_layout_cards_scroll_independently() -> None:
+def test_wide_layout_scrolls_columns_without_card_scrollbars() -> None:
     styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
-    wide_layout = styles.split("@media (min-width: 1180px)", 1)[1]
+    source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
+    wide_layout = styles.split("@media (min-width: 1180px)", 1)[1].split(
+        "@media (max-width: 900px)", 1
+    )[0]
 
-    assert ".primary-settings," in wide_layout
-    assert ".generation-controls," in wide_layout
-    assert ".result-panel" in wide_layout
-    assert "max-height: calc(100dvh - 40px)" in wide_layout
-    assert "overflow-y: auto" in wide_layout
-    assert "overscroll-behavior-y: auto" in wide_layout
-    assert "scrollbar-gutter: stable" in wide_layout
+    assert ".card-column" in wide_layout
+    assert ".card-column.is-column-pinned > .card" in wide_layout
+    assert "position: fixed" in wide_layout
+    assert "max-height:" not in wide_layout
+    assert "overflow-y:" not in wide_layout
+    assert "scrollbar" not in wide_layout
+    assert ".primary-settings::-webkit-scrollbar" not in wide_layout
+    assert "window.matchMedia(WIDE_LAYOUT_QUERY)" in source
+    assert 'column.classList.toggle("is-column-pinned"' in source
+    assert 'column.addEventListener("wheel", scrollPinnedColumn' in source
+    assert "event.preventDefault()" in source
 
 
 def test_sdxl_model_selector_lives_in_advanced_controls() -> None:
