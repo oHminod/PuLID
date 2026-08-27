@@ -56,18 +56,20 @@ def test_frontend_client_sends_every_generation_parameter() -> None:
     assert "form.append(name, value)" in source
 
 
-def test_frontend_persists_settings_reference_and_last_result_locally() -> None:
+def test_frontend_persists_settings_and_reference_but_not_output() -> None:
     app_source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     storage_source = (frontend_directory() / "storage.js").read_text(encoding="utf-8")
 
     assert "localStorageBackend?.setItem" in storage_source
     assert 'const LAST_REFERENCE_KEY = "last-reference"' in storage_source
-    assert 'const LAST_RESULT_KEY = "last-result"' in storage_source
     assert "indexedDbBackend.open" in storage_source
     assert "saveReference" in app_source
     assert "restoreReference" in app_source
-    assert "saveLastResult" in app_source
-    assert "restoreLastResult" in app_source
+    assert "saveLastResult" not in app_source
+    assert "loadLastResult" not in app_source
+    assert "putArtifact(LAST_RESULT" not in storage_source
+    assert "const DATABASE_VERSION = 2" in storage_source
+    assert 'artifactStore.delete("last-result")' in storage_source
 
 
 def test_clearing_only_reference_preserves_settings_and_result() -> None:
@@ -81,7 +83,6 @@ def test_clearing_only_reference_preserves_settings_and_result() -> None:
     assert "storage.clearReference()" in app_source
     assert "deleteArtifact(LAST_REFERENCE_KEY)" in clear_reference_block
     assert "SETTINGS_KEY" not in clear_reference_block
-    assert "LAST_RESULT_KEY" not in clear_reference_block
 
 
 def test_build_server_configures_static_root_and_backend(monkeypatch) -> None:

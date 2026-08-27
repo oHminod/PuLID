@@ -251,7 +251,7 @@
               <div class="empty-result" id="emptyResult">
                 <span class="empty-orbit" aria-hidden="true"></span>
                 <strong>Votre création apparaîtra ici</strong>
-                <p>La dernière image sera conservée localement dans ce navigateur.</p>
+                <p>L’image restera disponible jusqu’au rechargement de la page.</p>
               </div>
               <div class="generating-result" id="generatingResult" hidden>
                 <span class="generation-spinner" aria-hidden="true"></span>
@@ -271,15 +271,14 @@
             <a class="button secondary download-button" id="downloadButton" href="#" download hidden>
               Télécharger le PNG
             </a>
-            <p class="result-persistence" id="resultPersistence" role="status" hidden></p>
           </aside>
         </div>
       </main>
 
       <footer>
         <p>
-          Interface locale · La référence, les réglages et la dernière génération
-          restent dans ce navigateur.
+          Interface locale · La référence et les réglages restent dans ce navigateur.
+          L’image générée n’est pas persistée.
         </p>
         <button class="footer-action" id="clearLocalData" type="button">
           Effacer les données locales

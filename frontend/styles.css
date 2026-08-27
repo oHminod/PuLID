@@ -320,19 +320,25 @@ summary,
 .reference-actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 9px;
 }
 
 .inline-action {
   cursor: pointer;
-  border: 0;
-  padding: 8px 2px 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: rgb(255 255 255 / 2.5%);
+  color: #c9c6ce;
+  font-size: 0.72rem;
+  font-weight: 650;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
 }
 
 .inline-action:hover {
-  color: var(--danger);
+  border-color: rgb(255 130 122 / 48%);
+  background: rgb(255 130 122 / 6%);
+  color: #ffc0bb;
 }
 
 .inline-action:focus-visible {
@@ -609,14 +615,6 @@ textarea::placeholder {
 .download-button {
   width: 100%;
   margin-top: 20px;
-}
-
-.result-persistence {
-  margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 0.7rem;
-  line-height: 1.45;
-  text-align: center;
 }
 
 .button-loader {

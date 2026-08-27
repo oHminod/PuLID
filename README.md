@@ -254,11 +254,14 @@ et un checkpoint. Il permet aussi de régler le prompt négatif, Clip Skip 2, le
 CFG, les steps, la force d’identité, le sampler, les sigmas et la seed.
 
 Les derniers réglages sont enregistrés dans le `localStorage` du navigateur.
-La photo de référence et le dernier PNG généré sont conservés dans `IndexedDB`
-et automatiquement restaurés au prochain chargement de la page. Le bouton
-**Oublier uniquement la photo** supprime la référence sans modifier les autres
-réglages ni le dernier résultat. Le lien **Effacer les données locales** retire
-l’ensemble de ces données du navigateur.
+La photo de référence est conservée dans `IndexedDB` et automatiquement
+restaurée au prochain chargement de la page. Le bouton **Oublier uniquement la
+photo** supprime cette référence sans modifier les autres réglages. Le lien
+**Effacer les données locales** retire la référence et l’ensemble des réglages
+du navigateur.
+
+Le PNG généré n’est jamais persisté : il reste disponible pour l’aperçu et le
+téléchargement uniquement jusqu’au rechargement ou à la fermeture de la page.
 
 Contrairement à la CLI, le frontend ne crée pas automatiquement de fichier dans
 `outputs/`. Les données persistées restent propres au navigateur et à l’adresse

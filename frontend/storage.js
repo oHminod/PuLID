@@ -3,9 +3,8 @@
 
   const SETTINGS_KEY = "pulid-studio:settings:v1";
   const DATABASE_NAME = "pulid-studio";
-  const DATABASE_VERSION = 1;
+  const DATABASE_VERSION = 2;
   const ARTIFACT_STORE = "artifacts";
-  const LAST_RESULT_KEY = "last-result";
   const LAST_REFERENCE_KEY = "last-reference";
 
   function createPuLIDStorage(backends = {}) {
@@ -44,10 +43,16 @@
       }
       return new Promise((resolve, reject) => {
         const request = indexedDbBackend.open(DATABASE_NAME, DATABASE_VERSION);
-        request.onupgradeneeded = () => {
+        request.onupgradeneeded = (event) => {
           const database = request.result;
+          let artifactStore;
           if (!database.objectStoreNames.contains(ARTIFACT_STORE)) {
-            database.createObjectStore(ARTIFACT_STORE, { keyPath: "id" });
+            artifactStore = database.createObjectStore(ARTIFACT_STORE, { keyPath: "id" });
+          } else {
+            artifactStore = request.transaction.objectStore(ARTIFACT_STORE);
+          }
+          if (event.oldVersion < 2) {
+            artifactStore.delete("last-result");
           }
         };
         request.onsuccess = () => resolve(request.result);
@@ -108,14 +113,6 @@
       }
     }
 
-    function saveLastResult(result) {
-      return putArtifact(LAST_RESULT_KEY, result);
-    }
-
-    function loadLastResult() {
-      return getArtifact(LAST_RESULT_KEY);
-    }
-
     function saveReference(file) {
       return putArtifact(LAST_REFERENCE_KEY, {
         blob: file,
@@ -156,8 +153,6 @@
     return Object.freeze({
       loadSettings,
       saveSettings,
-      saveLastResult,
-      loadLastResult,
       saveReference,
       loadReference,
       clearReference,

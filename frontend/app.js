@@ -50,7 +50,6 @@ const elements = {
   resultMethod: document.querySelector("#resultMethod"),
   resultSigmas: document.querySelector("#resultSigmas"),
   downloadButton: document.querySelector("#downloadButton"),
-  resultPersistence: document.querySelector("#resultPersistence"),
   clearLocalData: document.querySelector("#clearLocalData"),
 };
 
@@ -360,11 +359,10 @@ function resultFromResponse(response, blob) {
     model: response.headers.get("X-SDXL-Model") ?? elements.model.value,
     method: response.headers.get("X-Sampling-Method") ?? elements.method.value,
     sigmas: response.headers.get("X-Sigma-Schedule") ?? elements.sigmas.value,
-    createdAt: new Date().toISOString(),
   };
 }
 
-function showResult(result, { restored = false } = {}) {
+function showResult(result) {
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
   state.resultUrl = URL.createObjectURL(result.blob);
   elements.generatedImage.src = state.resultUrl;
@@ -379,30 +377,6 @@ function showResult(result, { restored = false } = {}) {
   elements.downloadButton.href = state.resultUrl;
   elements.downloadButton.download = result.filename || "generation.png";
   elements.downloadButton.hidden = false;
-  elements.resultPersistence.textContent = restored
-    ? "Dernière génération restaurée depuis ce navigateur."
-    : "Conservation locale de la dernière génération…";
-  elements.resultPersistence.hidden = false;
-}
-
-async function persistResult(result) {
-  try {
-    await storage.saveLastResult(result);
-    elements.resultPersistence.textContent = "Dernière génération conservée localement.";
-  } catch {
-    elements.resultPersistence.textContent =
-      "Aperçu disponible pour cette session, mais sa conservation locale a échoué.";
-  }
-}
-
-async function restoreLastResult() {
-  try {
-    const result = await storage.loadLastResult();
-    if (!result?.blob || !(result.blob instanceof Blob)) return;
-    showResult(result, { restored: true });
-  } catch {
-    // L'absence d'IndexedDB ne bloque jamais la génération.
-  }
 }
 
 async function generate(event) {
@@ -430,7 +404,6 @@ async function generate(event) {
     if (!response.ok) throw new Error(await responseError(response));
     const result = resultFromResponse(response, await response.blob());
     showResult(result);
-    await persistResult(result);
   } catch (error) {
     elements.generatingResult.hidden = true;
     if (!state.resultUrl) elements.emptyResult.hidden = false;
@@ -461,7 +434,7 @@ function useDroppedFile(event) {
 
 async function clearLocalData() {
   const confirmed = window.confirm(
-    "Effacer la photo de référence, la dernière génération et tous les réglages sauvegardés ?",
+    "Effacer la photo de référence et tous les réglages sauvegardés ?",
   );
   if (!confirmed) return;
   setError();
@@ -530,7 +503,6 @@ async function initialize() {
   await Promise.all([
     loadInventory(savedSettings ?? collectSettings()),
     restoreReference(),
-    restoreLastResult(),
   ]);
 }
 
