@@ -521,7 +521,7 @@ function useDroppedFile(event) {
 
 async function clearLocalData() {
   const confirmed = window.confirm(
-    "Effacer la photo de référence et tous les réglages sauvegardés ?",
+    "Cette action supprime de ce navigateur la photo d’identité mémorisée et tous les réglages enregistrés. L’aperçu actuel disparaîtra au rechargement. Aucun modèle, fichier du backend ou PNG déjà téléchargé ne sera supprimé.\n\nVoulez-vous continuer ?",
   );
   if (!confirmed) return;
   setError();

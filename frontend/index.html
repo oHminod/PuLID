@@ -232,6 +232,16 @@
                   />
                   <small id="seedHelp">0 ou −1 pour une seed aléatoire, sinon un entier positif.</small>
                 </label>
+
+                <div class="local-data-actions">
+                  <span>
+                    <strong>Données locales</strong>
+                    <small>Photo d’identité et derniers réglages mémorisés.</small>
+                  </span>
+                  <button class="inline-action" id="clearLocalData" type="button">
+                    Effacer les données locales
+                  </button>
+                </div>
               </div>
             </details>
 
@@ -282,16 +292,6 @@
           </div>
         </form>
       </main>
-
-      <footer>
-        <p>
-          Interface locale · La référence et les réglages restent dans ce navigateur.
-          L’image générée n’est pas persistée.
-        </p>
-        <button class="footer-action" id="clearLocalData" type="button">
-          Effacer les données locales
-        </button>
-      </footer>
     </div>
   </body>
 </html>

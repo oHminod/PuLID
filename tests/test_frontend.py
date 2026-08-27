@@ -81,6 +81,19 @@ def test_sdxl_model_selector_lives_in_advanced_controls() -> None:
     assert controls_start < model_position < controls_end
 
 
+def test_local_data_action_lives_in_advanced_controls_without_footer() -> None:
+    html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
+    source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
+    advanced_start = html.index('<div class="advanced-content">')
+    advanced_end = html.index("</details>", advanced_start)
+    clear_action_position = html.index('id="clearLocalData"')
+
+    assert advanced_start < clear_action_position < advanced_end
+    assert "<footer" not in html
+    assert "photo d’identité mémorisée" in source
+    assert "Aucun modèle, fichier du backend" in source
+
+
 def test_character_and_clear_reference_share_compact_row() -> None:
     html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
     styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")

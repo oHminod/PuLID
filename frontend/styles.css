@@ -560,6 +560,37 @@ textarea::placeholder {
   margin-top: 16px;
 }
 
+.local-data-actions {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.local-data-actions > span,
+.local-data-actions strong,
+.local-data-actions small {
+  display: block;
+}
+
+.local-data-actions strong {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.local-data-actions small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.local-data-actions .inline-action {
+  min-height: 36px;
+  justify-self: start;
+}
+
 .advanced summary {
   display: flex;
   cursor: pointer;
@@ -879,38 +910,6 @@ textarea::placeholder {
   font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-footer {
-  padding: 34px 0 46px;
-  color: var(--muted);
-  font-size: 0.72rem;
-  text-align: center;
-}
-
-footer p {
-  margin: 0;
-}
-
-.footer-action {
-  margin-top: 10px;
-  cursor: pointer;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  padding: 2px 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
-.footer-action:hover {
-  border-bottom-color: var(--muted);
-  color: var(--text);
-}
-
-.footer-action:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
 }
 
 .sr-only {
