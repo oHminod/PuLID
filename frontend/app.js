@@ -121,12 +121,16 @@ function scrollPinnedColumn(event) {
     return;
   }
 
+  const delta = wheelDeltaInPixels(event);
+  if (delta === 0) return;
   const nextOffset = Math.max(
     0,
-    Math.min(scrollState.maxOffset, scrollState.offset + wheelDeltaInPixels(event)),
+    Math.min(scrollState.maxOffset, scrollState.offset + delta),
   );
-  if (nextOffset === scrollState.offset) return;
+  const keepsStickyWhileScrollingUp = delta < 0;
+  if (nextOffset === scrollState.offset && !keepsStickyWhileScrollingUp) return;
   event.preventDefault();
+  if (nextOffset === scrollState.offset) return;
   scrollState.offset = nextOffset;
   column.style.setProperty("--column-offset", `${nextOffset}px`);
 }

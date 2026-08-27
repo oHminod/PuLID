@@ -69,6 +69,8 @@ def test_wide_layout_scrolls_columns_without_card_scrollbars() -> None:
     assert "window.matchMedia(WIDE_LAYOUT_QUERY)" in source
     assert 'column.classList.toggle("is-column-pinned"' in source
     assert 'column.addEventListener("wheel", scrollPinnedColumn' in source
+    assert "const keepsStickyWhileScrollingUp = delta < 0" in source
+    assert "nextOffset === scrollState.offset && !keepsStickyWhileScrollingUp" in source
     assert "event.preventDefault()" in source
 
 
