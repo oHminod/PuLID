@@ -49,6 +49,19 @@ def test_wide_layout_separates_primary_controls_and_result_cards() -> None:
     assert "grid-template-columns:" in styles
 
 
+def test_wide_layout_cards_scroll_independently() -> None:
+    styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
+    wide_layout = styles.split("@media (min-width: 1180px)", 1)[1]
+
+    assert ".primary-settings," in wide_layout
+    assert ".generation-controls," in wide_layout
+    assert ".result-panel" in wide_layout
+    assert "max-height: calc(100dvh - 40px)" in wide_layout
+    assert "overflow-y: auto" in wide_layout
+    assert "overscroll-behavior-y: contain" in wide_layout
+    assert "scrollbar-gutter: stable" in wide_layout
+
+
 def test_sdxl_model_selector_lives_in_advanced_controls() -> None:
     html = (frontend_directory() / "index.html").read_text(encoding="utf-8")
     controls_start = html.index('<section class="generation-controls card">')

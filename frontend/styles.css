@@ -934,11 +934,24 @@ footer p {
       minmax(340px, 0.92fr);
   }
 
+  .primary-settings,
+  .generation-controls,
+  .result-panel {
+    position: sticky;
+    top: 20px;
+    align-self: start;
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-color: var(--border-strong) transparent;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
   .generation-controls {
     grid-column: 1;
     grid-row: 1;
-    position: sticky;
-    top: 20px;
   }
 
   .primary-settings {
@@ -949,6 +962,27 @@ footer p {
   .result-panel {
     grid-column: 3;
     grid-row: 1;
+  }
+
+  .primary-settings::-webkit-scrollbar,
+  .generation-controls::-webkit-scrollbar,
+  .result-panel::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .primary-settings::-webkit-scrollbar-track,
+  .generation-controls::-webkit-scrollbar-track,
+  .result-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .primary-settings::-webkit-scrollbar-thumb,
+  .generation-controls::-webkit-scrollbar-thumb,
+  .result-panel::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
   }
 }
 
