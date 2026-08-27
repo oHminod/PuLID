@@ -95,10 +95,8 @@ Le script installe l’environnement Python, les dépendances CUDA et les modèl
 puis tente de configurer le pare-feu Windows pour le port `12693` sur les
 réseaux privés.
 
-InsightFace 1.0.1 est installé depuis sa wheel officielle sans compilation
-locale. Microsoft C++ Build Tools n'est donc plus un prérequis ; l'installateur
-échoue explicitement si cette wheel n'est pas disponible au lieu de compiler le
-paquet depuis ses sources.
+InsightFace 1.0.1 est installé depuis sa wheel officielle. L’installateur exige
+cette distribution binaire sur macOS comme sous Windows.
 
 #### Licence d’AntelopeV2
 
