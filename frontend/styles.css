@@ -1069,4 +1069,14 @@ textarea::placeholder {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+
+  .button-loader {
+    animation-duration: 750ms !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  .generation-spinner {
+    animation-duration: 900ms !important;
+    animation-iteration-count: infinite !important;
+  }
 }

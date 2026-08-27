@@ -153,6 +153,17 @@ def test_frontend_persists_advanced_settings_disclosure_state() -> None:
     assert 'elements.advancedSettings.addEventListener("toggle", queueSettingsSave)' in source
 
 
+def test_loading_spinners_keep_rotating_with_reduced_motion_enabled() -> None:
+    styles = (frontend_directory() / "styles.css").read_text(encoding="utf-8")
+    reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+
+    assert ".button-loader" in reduced_motion
+    assert "animation-duration: 750ms !important" in reduced_motion
+    assert ".generation-spinner" in reduced_motion
+    assert "animation-duration: 900ms !important" in reduced_motion
+    assert reduced_motion.count("animation-iteration-count: infinite !important") == 2
+
+
 def test_clearing_only_reference_preserves_settings_and_result() -> None:
     app_source = (frontend_directory() / "app.js").read_text(encoding="utf-8")
     storage_source = (frontend_directory() / "storage.js").read_text(encoding="utf-8")
