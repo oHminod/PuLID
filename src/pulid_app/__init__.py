@@ -1,5 +1,7 @@
 """Application autonome PuLID + SDXL."""
 
+from importlib import metadata
+
 from pulid_app.exceptions import (
     ExternalDriveNotMountedError,
     FaceNotDetectedError,
@@ -10,7 +12,17 @@ from pulid_app.exceptions import (
     UnsupportedDeviceError,
 )
 
-__version__ = "0.1.0"
+
+def _resolve_version() -> str:
+    """Return the installed distribution version, or an explicit source fallback."""
+
+    try:
+        return metadata.version("pulid-app")
+    except metadata.PackageNotFoundError:
+        return "0+unknown"
+
+
+__version__ = _resolve_version()
 
 __all__ = [
     "ExternalDriveNotMountedError",
