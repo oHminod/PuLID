@@ -88,6 +88,47 @@ device:
     assert "VAE intégré" in output.getvalue()
 
 
+def test_installation_inspection_allows_deferred_sdxl(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    antelope = models / "antelopev2"
+    antelope.mkdir(parents=True)
+    (models / "checkpoints").mkdir()
+    (models / "pulid_v1.1.safetensors").touch()
+    for name in ANTELOPEV2_REQUIRED_FILES:
+        (antelope / name).touch()
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"""
+models_root: {models}
+sdxl:
+  checkpoint: checkpoints/deferred.safetensors
+pulid:
+  checkpoint: pulid_v1.1.safetensors
+insightface:
+  model_root: .
+  model_name: antelopev2
+outputs_dir: {tmp_path / 'outputs'}
+identity_cache_dir: {tmp_path / 'cache' / 'identity'}
+device:
+  preferred: cpu
+  dtype: float32
+""",
+        encoding="utf-8",
+    )
+    output = StringIO()
+
+    result = run_inspection(
+        config,
+        Console(file=output, force_terminal=False),
+        allow_missing_sdxl=True,
+    )
+
+    assert result == 0
+    assert "Checkpoint SDXL non installé" in output.getvalue()
+    assert "Inspection réussie" in output.getvalue()
+
+
 def test_inspection_can_show_and_validate_external_caches(tmp_path: Path) -> None:
     models = tmp_path / "models"
     checkpoints = models / "checkpoints"
@@ -157,6 +198,8 @@ def test_main_parser_exposes_phase_11_subcommands() -> None:
             "portrait",
         ]
     )
+    doctor = parser.parse_args(["doctor", "--allow-missing-sdxl"])
+    inspection = parser.parse_args(["inspect-models", "--allow-missing-sdxl"])
 
     assert generate.command == "generate"
     assert generate.guidance_scale == 4.5
@@ -164,6 +207,8 @@ def test_main_parser_exposes_phase_11_subcommands() -> None:
     assert generate.sigmas == "karras"
     assert generate.offload == "model_cpu_offload"
     assert benchmark.command == "benchmark"
+    assert doctor.allow_missing_sdxl is True
+    assert inspection.allow_missing_sdxl is True
 
 
 def test_encode_command_uses_content_cache(tmp_path: Path) -> None:

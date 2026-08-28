@@ -180,10 +180,10 @@ echo Verification du chargement et du calcul BGE-M3 sur CUDA...
 if errorlevel 1 goto :llama_context_error
 
 echo Verification de l'installation et des modeles...
-"%PROJECT_DIR%.venv\Scripts\pulid-gen.exe" doctor
+"%PROJECT_DIR%.venv\Scripts\pulid-gen.exe" doctor --allow-missing-sdxl
 if errorlevel 1 goto :validation_error
 
-"%VENV_PYTHON%" "%PROJECT_DIR%scripts\inspect_models.py" --show-cache-env --fail-on-internal-cache
+"%VENV_PYTHON%" "%PROJECT_DIR%scripts\inspect_models.py" --show-cache-env --fail-on-internal-cache --allow-missing-sdxl
 if errorlevel 1 goto :validation_error
 
 :ask_firewall

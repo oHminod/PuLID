@@ -174,3 +174,29 @@ def test_doctor_reports_missing_models_root(tmp_path: Path) -> None:
     assert report.healthy is False
     assert any(check.name == "SSD / models_root" for check in report.errors)
     assert any(check.name == "Checkpoint SDXL" for check in report.errors)
+
+
+def test_doctor_can_tolerate_deferred_sdxl_during_installation(
+    tmp_path: Path,
+) -> None:
+    config = _ready_config(tmp_path)
+    config.sdxl.checkpoint.unlink()
+    device = SimpleNamespace(
+        selected_device="cpu",
+        mps_available=False,
+        cuda_available=False,
+    )
+
+    report = build_doctor_report(
+        config,
+        device_reporter=lambda: device,
+        version_resolver=lambda _distribution: "1.2.3",
+        allow_missing_sdxl=True,
+    )
+
+    sdxl_check = next(
+        check for check in report.checks if check.name == "Checkpoint SDXL"
+    )
+    assert report.healthy is True
+    assert sdxl_check.status == "warning"
+    assert "Relancez `pulid-install`" in sdxl_check.details

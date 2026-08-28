@@ -632,10 +632,13 @@ def select_sdxl_checkpoint(
     mode: str = "ask",
     preferred_checkpoint: Path | None = None,
     input_fn: Callable[[str], str] = input,
-) -> Path:
+) -> Path | None:
     checkpoints_dir = models_root / "checkpoints"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     candidates = discover_sdxl_checkpoints(models_root)
+
+    if mode == "skip":
+        return None
 
     if mode == "ask" and candidates:
         resolved_preference = (
@@ -656,6 +659,18 @@ def select_sdxl_checkpoint(
         )
         return checkpoint
 
+    if mode == "ask" and not ask_yes_no(
+        "Souhaitez-vous installer un modèle SDXL maintenant ? "
+        "Vous pourrez le faire ultérieurement en relançant l'installateur.",
+        default=True,
+        input_fn=input_fn,
+    ):
+        console.print(
+            "[yellow]Installation du checkpoint SDXL différée.[/] "
+            "Les autres composants vont être installés normalement."
+        )
+        return None
+
     has_model = mode == "existing"
     if mode == "ask":
         has_model = ask_yes_no(
@@ -671,6 +686,12 @@ def select_sdxl_checkpoint(
         if not candidates and mode == "ask":
             input_fn("Appuyez sur Entrée après avoir copié le fichier : ")
             candidates = discover_sdxl_checkpoints(models_root)
+            if not candidates:
+                console.print(
+                    "[yellow]Aucun checkpoint détecté ; installation SDXL "
+                    "différée.[/]"
+                )
+                return None
         return choose_checkpoint(candidates, input_fn=input_fn)
 
     if mode == "ask" and not ask_yes_no(
@@ -678,10 +699,11 @@ def select_sdxl_checkpoint(
         default=True,
         input_fn=input_fn,
     ):
-        raise InstallerError(
-            "Un checkpoint SDXL est indispensable. Relancez l'installation et "
-            "choisissez un modèle local ou le téléchargement proposé."
+        console.print(
+            "[yellow]Téléchargement du checkpoint SDXL différé.[/] "
+            "Relancez l'installateur lorsque vous souhaiterez l'ajouter."
         )
+        return None
     return ensure_huggingface_asset(models_root, BASE_SDXL, console)
 
 
@@ -695,7 +717,7 @@ def _platform_device() -> str:
 
 def write_local_config(
     models_root: Path,
-    sdxl_checkpoint: Path,
+    sdxl_checkpoint: Path | None,
     *,
     default_config: Path = DEFAULT_CONFIG_PATH,
     destination: Path = LOCAL_CONFIG_PATH,
@@ -710,16 +732,18 @@ def write_local_config(
         ) from exc
     if not isinstance(raw, dict) or not isinstance(raw.get("sdxl"), dict):
         raise InstallerError(f"Configuration par défaut invalide : {default_config}")
-    try:
-        relative_checkpoint = sdxl_checkpoint.resolve(strict=False).relative_to(
-            models_root.resolve(strict=False)
-        )
-    except ValueError as exc:
-        raise InstallerError(
-            f"Le checkpoint SDXL doit rester sous {models_root} : {sdxl_checkpoint}"
-        ) from exc
     raw["models_root"] = models_root.as_posix()
-    raw["sdxl"]["checkpoint"] = relative_checkpoint.as_posix()
+    if sdxl_checkpoint is not None:
+        try:
+            relative_checkpoint = sdxl_checkpoint.resolve(strict=False).relative_to(
+                models_root.resolve(strict=False)
+            )
+        except ValueError as exc:
+            raise InstallerError(
+                f"Le checkpoint SDXL doit rester sous {models_root} : "
+                f"{sdxl_checkpoint}"
+            ) from exc
+        raw["sdxl"]["checkpoint"] = relative_checkpoint.as_posix()
     device = raw.setdefault("device", {})
     if isinstance(device, dict):
         device["preferred"] = _platform_device()
@@ -783,9 +807,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sdxl",
-        choices=("ask", "existing", "download"),
+        choices=("ask", "existing", "download", "skip"),
         default="ask",
-        help="Sélection interactive, modèle local existant ou SDXL Base officiel.",
+        help=(
+            "Sélection interactive, modèle local existant, SDXL Base officiel "
+            "ou installation différée."
+        ),
     )
     parser.add_argument(
         "--force-configs",
@@ -847,7 +874,14 @@ def run_installation(args: argparse.Namespace, console: Console) -> int:
     local_config = write_local_config(models_root, checkpoint)
     console.print()
     console.print("[bold green]Installation des modèles terminée.[/]")
-    console.print(f"Checkpoint SDXL : [cyan]{checkpoint}[/]")
+    if checkpoint is None:
+        console.print(
+            "[yellow]Checkpoint SDXL : installation différée.[/] "
+            f"Vous pourrez déposer un fichier .safetensors dans "
+            f"[cyan]{models_root / 'checkpoints'}[/] puis relancer l'installateur."
+        )
+    else:
+        console.print(f"Checkpoint SDXL : [cyan]{checkpoint}[/]")
     console.print(f"Configuration locale : [cyan]{local_config}[/]")
     console.print(
         "AntelopeV2 est distribué pour la recherche non commerciale ; "

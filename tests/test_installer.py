@@ -118,6 +118,37 @@ def test_existing_sdxl_checkpoint_skips_all_questions(tmp_path: Path) -> None:
     assert selected == preferred
 
 
+def test_sdxl_installation_can_be_deferred(tmp_path: Path) -> None:
+    console = _console()
+    prompts: list[str] = []
+
+    def answer_no(prompt: str) -> str:
+        prompts.append(prompt)
+        return "non"
+
+    selected = select_sdxl_checkpoint(
+        tmp_path / "PuLID_models",
+        console,
+        input_fn=answer_no,
+    )
+
+    assert selected is None
+    assert len(prompts) == 1
+    assert "ultérieurement" in prompts[0]
+    assert "différée" in console.file.getvalue()
+
+
+def test_sdxl_skip_mode_does_not_ask_questions(tmp_path: Path) -> None:
+    selected = select_sdxl_checkpoint(
+        tmp_path / "PuLID_models",
+        _console(),
+        mode="skip",
+        input_fn=lambda _prompt: pytest.fail("aucune question attendue"),
+    )
+
+    assert selected is None
+
+
 def test_huggingface_asset_is_idempotent_and_repairs_invalid_file(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +315,46 @@ device:
     )
     assert loaded.models_root == models_root
     assert loaded.sdxl.checkpoint == checkpoint
+
+
+def test_write_local_config_keeps_default_checkpoint_when_sdxl_is_deferred(
+    tmp_path: Path,
+) -> None:
+    models_root = tmp_path / "chosen" / "PuLID_models"
+    default_config = tmp_path / "default.yaml"
+    default_config.write_text(
+        """
+models_root: PuLID_models
+sdxl:
+  checkpoint: checkpoints/default.safetensors
+pulid:
+  checkpoint: pulid_v1.1.safetensors
+insightface:
+  model_root: .
+  model_name: antelopev2
+outputs_dir: outputs
+identity_cache_dir: cache/identity
+device:
+  preferred: cpu
+  dtype: float32
+""",
+        encoding="utf-8",
+    )
+    local_config = tmp_path / "local.yaml"
+
+    write_local_config(
+        models_root,
+        None,
+        default_config=default_config,
+        destination=local_config,
+    )
+    raw = yaml.safe_load(local_config.read_text(encoding="utf-8"))
+    loaded = load_config(local_config)
+
+    assert raw["sdxl"]["checkpoint"] == "checkpoints/default.safetensors"
+    assert loaded.sdxl.checkpoint == (
+        models_root / "checkpoints" / "default.safetensors"
+    )
 
 
 def test_validate_sdxl_config_tree_rejects_missing_files_and_weights(

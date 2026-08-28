@@ -69,6 +69,11 @@ def build_inspection_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Échoue si un cache effectif se trouve hors de models_root.",
     )
+    parser.add_argument(
+        "--allow-missing-sdxl",
+        action="store_true",
+        help="Tolère un checkpoint SDXL différé pendant la validation d'installation.",
+    )
     return parser
 
 
@@ -97,6 +102,7 @@ def run_inspection(
     *,
     show_cache_env: bool = False,
     fail_on_internal_cache: bool = False,
+    allow_missing_sdxl: bool = False,
 ) -> int:
     try:
         config = load_config(config_path)
@@ -160,13 +166,22 @@ def run_inspection(
         table.add_row(str(path), configured)
     if inventory.sdxl_candidates:
         console.print(table)
+    elif allow_missing_sdxl:
+        console.print(
+            "[yellow]⚠ Checkpoint SDXL non installé pour le moment.[/] "
+            "Relancez `pulid-install` avant toute génération d'image."
+        )
     else:
         console.print("[red]✗ Aucun candidat SDXL .safetensors détecté.[/]")
         failures.append("sdxl")
 
     if not config.sdxl.checkpoint.is_file():
-        console.print(f"[red]✗ Checkpoint SDXL configuré absent :[/] {config.sdxl.checkpoint}")
-        failures.append("sdxl_configured")
+        if not (allow_missing_sdxl and not inventory.sdxl_candidates):
+            console.print(
+                f"[red]✗ Checkpoint SDXL configuré absent :[/] "
+                f"{config.sdxl.checkpoint}"
+            )
+            failures.append("sdxl_configured")
     else:
         console.print(
             "[green]✓ Checkpoint SDXL configuré (VAE intégré) :[/] "
@@ -236,6 +251,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Vérifie le SSD, les modèles, les caches, le device et les dépendances.",
     )
     _add_config_option(doctor)
+    doctor.add_argument(
+        "--allow-missing-sdxl",
+        action="store_true",
+        help="Tolère un checkpoint SDXL différé pendant la validation d'installation.",
+    )
     doctor.set_defaults(handler=_handle_doctor)
 
     inspection = subparsers.add_parser(
@@ -245,6 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config_option(inspection)
     inspection.add_argument("--show-cache-env", action="store_true")
     inspection.add_argument("--fail-on-internal-cache", action="store_true")
+    inspection.add_argument("--allow-missing-sdxl", action="store_true")
     inspection.set_defaults(handler=_handle_inspection)
 
     encode = subparsers.add_parser(
@@ -352,11 +373,16 @@ def _load_command_config(
         return None
 
 
-def run_doctor(config_path: Path | None, console: Console) -> int:
+def run_doctor(
+    config_path: Path | None,
+    console: Console,
+    *,
+    allow_missing_sdxl: bool = False,
+) -> int:
     config = _load_command_config(config_path, console)
     if config is None:
         return 2
-    report = build_doctor_report(config)
+    report = build_doctor_report(config, allow_missing_sdxl=allow_missing_sdxl)
     print_doctor_report(report, console)
     return 0 if report.healthy else 1
 
@@ -568,7 +594,11 @@ def run_benchmark(
 
 
 def _handle_doctor(args: argparse.Namespace, console: Console) -> int:
-    return run_doctor(args.config, console)
+    return run_doctor(
+        args.config,
+        console,
+        allow_missing_sdxl=args.allow_missing_sdxl,
+    )
 
 
 def _handle_inspection(args: argparse.Namespace, console: Console) -> int:
@@ -577,6 +607,7 @@ def _handle_inspection(args: argparse.Namespace, console: Console) -> int:
         console,
         show_cache_env=args.show_cache_env,
         fail_on_internal_cache=args.fail_on_internal_cache,
+        allow_missing_sdxl=args.allow_missing_sdxl,
     )
 
 
@@ -607,6 +638,7 @@ def inspect_main(argv: list[str] | None = None) -> int:
         Console(),
         show_cache_env=args.show_cache_env,
         fail_on_internal_cache=args.fail_on_internal_cache,
+        allow_missing_sdxl=args.allow_missing_sdxl,
     )
 
 

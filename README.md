@@ -112,9 +112,16 @@ automatisées où ces conditions ont déjà été acceptées.
 
 ### 4. Choisir le checkpoint SDXL
 
-Si un checkpoint `.safetensors` existe déjà, placez-le dans le dossier
-`checkpoints` de `PuLID_models` lorsque l’installateur le demande. Sinon, vous
-pouvez accepter le téléchargement de SDXL Base 1.0.
+L’installateur demande d’abord si vous souhaitez ajouter un modèle SDXL tout de
+suite. Vous pouvez différer cette étape : l’installation des autres composants
+se termine normalement, mais un checkpoint reste nécessaire avant de générer
+une image.
+
+Si vous choisissez de l’ajouter immédiatement, placez votre checkpoint
+`.safetensors` dans le dossier `checkpoints` de `PuLID_models` lorsque
+l’installateur le demande, ou acceptez le téléchargement de SDXL Base 1.0. Pour
+l’ajouter ultérieurement, déposez le fichier dans ce même dossier puis relancez
+le script d’installation.
 
 L’installation est réparable et idempotente : relancer le script de votre
 plateforme vérifie les fichiers présents et ne récupère que ce qui manque ou ce

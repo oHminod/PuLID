@@ -201,8 +201,11 @@ echo "Vérification des composants Python..."
 "${VENV_PYTHON}" -c "import diffusers, fastapi, llama_cpp, torch, transformers; info = llama_cpp.llama_print_system_info().decode(); assert 'MTL' in info, 'Backend Metal absent de llama-cpp-python'; print('Python', '${PYTHON_VERSION}', '-', '${PYTHON_ARCH}'); print('PyTorch', torch.__version__, '- MPS disponible :', torch.backends.mps.is_available()); print('llama-cpp-python', llama_cpp.__version__, '- Metal OK')"
 "${VENV_DIR}/bin/pulid-gen" --version
 "${VENV_PYTHON}" -c "from pulid_app.config import load_config; config = load_config(); embedding = config.text_embedding; assert embedding is not None; assert embedding.checkpoint.is_file(), embedding.checkpoint; print('GGUF configuré :', embedding.checkpoint)"
-"${VENV_DIR}/bin/pulid-gen" doctor
-"${VENV_PYTHON}" scripts/inspect_models.py --show-cache-env --fail-on-internal-cache
+"${VENV_DIR}/bin/pulid-gen" doctor --allow-missing-sdxl
+"${VENV_PYTHON}" scripts/inspect_models.py \
+  --show-cache-env \
+  --fail-on-internal-cache \
+  --allow-missing-sdxl
 
 trap - ERR
 echo

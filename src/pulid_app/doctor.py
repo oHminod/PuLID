@@ -150,6 +150,7 @@ def build_doctor_report(
     *,
     device_reporter: Callable[[], Any] | None = None,
     version_resolver: Callable[[str], str] | None = None,
+    allow_missing_sdxl: bool = False,
 ) -> DoctorReport:
     """Exécute les contrôles sans charger de poids de modèles."""
 
@@ -192,7 +193,17 @@ def build_doctor_report(
         )
     )
 
-    checks.append(_readable_file_check("Checkpoint SDXL", config.sdxl.checkpoint))
+    if allow_missing_sdxl and not config.sdxl.checkpoint.exists():
+        checks.append(
+            DoctorCheck(
+                "Checkpoint SDXL",
+                "warning",
+                "Installation différée. Relancez `pulid-install` avant toute "
+                "génération d'image.",
+            )
+        )
+    else:
+        checks.append(_readable_file_check("Checkpoint SDXL", config.sdxl.checkpoint))
     checks.append(_readable_file_check("Checkpoint PuLID", config.pulid.checkpoint))
     if config.text_embedding is not None:
         checks.append(
