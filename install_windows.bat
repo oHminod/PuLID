@@ -186,6 +186,22 @@ if errorlevel 1 goto :validation_error
 "%VENV_PYTHON%" "%PROJECT_DIR%scripts\inspect_models.py" --show-cache-env --fail-on-internal-cache
 if errorlevel 1 goto :validation_error
 
+:ask_firewall
+echo.
+set "OPEN_FIREWALL="
+set /p "OPEN_FIREWALL=Autoriser l'acces a PuLID depuis d'autres appareils du reseau local ? [o/N] "
+if not defined OPEN_FIREWALL goto :skip_firewall
+if /I "%OPEN_FIREWALL%"=="O" goto :configure_firewall
+if /I "%OPEN_FIREWALL%"=="OUI" goto :configure_firewall
+if /I "%OPEN_FIREWALL%"=="Y" goto :configure_firewall
+if /I "%OPEN_FIREWALL%"=="YES" goto :configure_firewall
+if /I "%OPEN_FIREWALL%"=="N" goto :skip_firewall
+if /I "%OPEN_FIREWALL%"=="NON" goto :skip_firewall
+if /I "%OPEN_FIREWALL%"=="NO" goto :skip_firewall
+echo Repondez oui ou non.
+goto :ask_firewall
+
+:configure_firewall
 netsh advfirewall firewall show rule name="PuLID_API_12693" >nul 2>&1
 if errorlevel 1 (
     echo Autorisation du port TCP 12693 sur les reseaux prives...
@@ -195,7 +211,15 @@ if errorlevel 1 (
         echo [AVERTISSEMENT] La regle de pare-feu n'a pas ete creee.
         echo Relancez install_windows.bat ou ajoutez manuellement le port TCP 12693 au profil prive.
     )
+) else (
+    echo La regle de pare-feu PuLID_API_12693 existe deja.
 )
+goto :firewall_done
+
+:skip_firewall
+echo Pare-feu Windows non modifie. PuLID reste utilisable sur cette machine.
+
+:firewall_done
 
 echo.
 echo Installation terminee.

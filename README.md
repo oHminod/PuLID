@@ -92,8 +92,10 @@ install_windows.bat
 ```
 
 Le script installe l’environnement Python, les dépendances CUDA et les modèles,
-puis tente de configurer le pare-feu Windows pour le port `12693` sur les
-réseaux privés.
+puis demande s’il doit autoriser le port `12693` dans le pare-feu Windows pour
+les réseaux privés. Répondez **non** — la valeur par défaut — si PuLID est
+utilisé uniquement sur ce PC. Répondez **oui** seulement si un autre appareil
+du réseau local doit accéder au serveur.
 
 InsightFace 1.0.1 est installé depuis sa wheel officielle. L’installateur exige
 cette distribution binaire sur macOS comme sous Windows.
@@ -408,7 +410,7 @@ responsable de l’enregistrement du PNG reçu.
 | Symptôme | Action recommandée |
 |---|---|
 | Catalogue PuLID indisponible dans `rp-bot` | Vérifier que le serveur est démarré et que l’URL se termine par `:12693`, sans `/v1` |
-| Serveur distant inaccessible | Utiliser l’IPv4 privée affichée par `start_windows.bat` et vérifier le profil privé du pare-feu |
+| Serveur distant inaccessible | Utiliser l’IPv4 privée affichée par `start_windows.bat`, relancer l’installation et accepter l’ouverture du pare-feu privé |
 | Aucun visage détecté | Choisir un avatar net, de face et suffisamment grand |
 | Plusieurs visages détectés | Recadrer l’avatar afin qu’un seul visage soit visible |
 | Checkpoint introuvable | Vérifier le fichier sous `<PuLID_models>/checkpoints/`, puis actualiser le catalogue |
