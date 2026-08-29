@@ -11,7 +11,6 @@ set "SERVER_CORS="
 if /I "%~1"=="--network" (
     set "SERVER_HOST=0.0.0.0"
     set "SERVER_CORS=--cors-origin *"
-    shift
 )
 
 cd /d "%PROJECT_DIR%"

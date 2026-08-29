@@ -20,6 +20,7 @@ from pulid_app.server import (
     create_app,
     generated_filename,
     resolve_generation_seed,
+    resolve_network_settings,
 )
 
 
@@ -593,7 +594,20 @@ def test_embedding_memory_cli_modes_are_exclusive() -> None:
     defaults = parser.parse_args([])
     assert defaults.embedding_memory_mode == "concurrent"
     assert defaults.host == "127.0.0.1"
+    assert defaults.network is False
     assert defaults.cors_origin == []
+    network = parser.parse_args(["--network"])
+    assert network.network is True
+    assert resolve_network_settings(
+        network.host,
+        network.cors_origin,
+        network=network.network,
+    ) == ("0.0.0.0", ("*",))
+    assert resolve_network_settings(
+        "192.168.1.20",
+        ("http://localhost:8800", "*"),
+        network=True,
+    ) == ("0.0.0.0", ("http://localhost:8800", "*"))
     assert parser.parse_args(["--partial"]).embedding_memory_mode == "partial"
     assert parser.parse_args(["--full"]).embedding_memory_mode == "full"
     assert (

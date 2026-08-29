@@ -796,6 +796,14 @@ def create_app(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serveur HTTP PuLID local.")
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--network",
+        action="store_true",
+        help=(
+            "Mode réseau avancé : écoute sur 0.0.0.0 et autorise toutes les "
+            "origins CORS. À réserver à un réseau privé de confiance."
+        ),
+    )
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--config", type=Path)
     parser.add_argument("--device", choices=("mps", "cuda", "cpu"))
@@ -845,8 +853,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_network_settings(
+    host: str,
+    cors_origins: Sequence[str],
+    *,
+    network: bool,
+) -> tuple[str, tuple[str, ...]]:
+    """Applique le raccourci réseau sans modifier les réglages locaux par défaut."""
+
+    if not network:
+        return host, tuple(cors_origins)
+    selected_origins = tuple(cors_origins)
+    if "*" not in selected_origins:
+        selected_origins = (*selected_origins, "*")
+    return "0.0.0.0", selected_origins
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    host, cors_origins = resolve_network_settings(
+        args.host,
+        args.cors_origin,
+        network=args.network,
+    )
     import uvicorn
 
     uvicorn.run(
@@ -856,9 +885,9 @@ def main(argv: list[str] | None = None) -> int:
             dtype_name=args.dtype,
             offload_strategy=args.offload,
             embedding_memory_mode=args.embedding_memory_mode,
-            cors_origins=args.cors_origin,
+            cors_origins=cors_origins,
         ),
-        host=args.host,
+        host=host,
         port=args.port,
     )
     return 0

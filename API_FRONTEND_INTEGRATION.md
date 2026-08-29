@@ -65,11 +65,10 @@ L’écoute sur toutes les interfaces et CORS ouvert sont des options avancées
 séparées et explicites :
 
 ```bash
-pulid-server \
-  --host 0.0.0.0 \
-  --port 12693 \
-  --cors-origin "*"
+pulid-server --network --port 12693
 ```
+
+`--network` est le raccourci officiel pour `--host 0.0.0.0 --cors-origin "*"`.
 
 Ne combinez ces options que sur un réseau privé de confiance. Sous Windows,
 `start_windows.bat` reste sur `127.0.0.1`, tandis que

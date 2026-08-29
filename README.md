@@ -188,7 +188,7 @@ start_windows.bat --network
 L’équivalent direct sur macOS est explicite lui aussi :
 
 ```bash
-./start_pulid_server.sh --host 0.0.0.0 --cors-origin "*"
+./start_pulid_server.sh --network
 ```
 
 Pour créer un raccourci sur le Bureau sans déplacer le script :

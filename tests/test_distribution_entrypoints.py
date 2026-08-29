@@ -60,5 +60,6 @@ def test_windows_defaults_to_loopback_with_explicit_advanced_network_mode() -> N
     assert 'if /I "%~1"=="--network"' in launcher
     assert 'set "SERVER_HOST=0.0.0.0"' in launcher
     assert 'set "SERVER_CORS=--cors-origin *"' in launcher
+    assert "shift" not in launcher
     assert 'if "%PULID_CONFIGURE_NETWORK%"=="1" goto :ask_firewall' in installer
     assert "Mode reseau avance : relancez install_windows.bat --network." in installer
