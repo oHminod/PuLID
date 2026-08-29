@@ -2,6 +2,40 @@
 setlocal EnableExtensions
 
 set "PROJECT_DIR=%~dp0"
+set "PULID_PROJECT_ROOT=%PROJECT_DIR%"
+set "PULID_INSTALL_PROFILE=%PULID_INSTALL_PROFILE%"
+if not defined PULID_INSTALL_PROFILE set "PULID_INSTALL_PROFILE=development"
+set "PULID_CONFIGURE_NETWORK=0"
+
+:parse_arguments
+if "%~1"=="" goto :arguments_ready
+if /I "%~1"=="--production" (
+    set "PULID_INSTALL_PROFILE=production"
+    shift
+    goto :parse_arguments
+)
+if /I "%~1"=="--development" (
+    set "PULID_INSTALL_PROFILE=development"
+    shift
+    goto :parse_arguments
+)
+if /I "%~1"=="--network" (
+    set "PULID_CONFIGURE_NETWORK=1"
+    shift
+    goto :parse_arguments
+)
+if /I "%~1"=="--help" goto :usage
+if /I "%~1"=="-h" goto :usage
+echo [ERREUR] Option d'installation inconnue : %~1
+exit /b 2
+
+:arguments_ready
+if /I "%PULID_INSTALL_PROFILE%"=="production" goto :profile_ready
+if /I "%PULID_INSTALL_PROFILE%"=="development" goto :profile_ready
+echo [ERREUR] Profil PULID_INSTALL_PROFILE inconnu : %PULID_INSTALL_PROFILE%
+exit /b 2
+
+:profile_ready
 set "DEFAULT_MODELS_ROOT=%PROJECT_DIR%PuLID_models"
 set "REQUESTED_MODELS_ROOT=%PULID_MODELS_ROOT%"
 set "PULID_MODELS_ROOT="
@@ -155,8 +189,15 @@ if not exist "%LLAMA_CPP_LIB_DIR%\ggml-cuda.dll" goto :llama_cuda_error
 copy /Y "%LLAMA_CPP_PORTABLE_CPU_DLL%" "%LLAMA_CPP_LIB_DIR%\ggml-cpu.dll" >nul
 if errorlevel 1 goto :llama_portable_error
 
-echo Installation de PuLID et du serveur HTTP...
-"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary insightface --only-binary llama-cpp-python -e ".[inference,pulid,server,embeddings,dev]"
+set "PULID_PROJECT_SPEC=.[inference,pulid,server,embeddings]"
+set "PULID_EDITABLE_FLAG="
+if /I "%PULID_INSTALL_PROFILE%"=="development" (
+    set "PULID_PROJECT_SPEC=.[inference,pulid,server,embeddings,dev]"
+    set "PULID_EDITABLE_FLAG=-e"
+)
+
+echo Installation de PuLID et du serveur HTTP ^(profil %PULID_INSTALL_PROFILE%^)...
+"%UV_EXE%" pip install --python "%VENV_PYTHON%" --extra-index-url "%LLAMA_CPP_CUDA_INDEX%" --only-binary insightface --only-binary llama-cpp-python %PULID_EDITABLE_FLAG% "%PULID_PROJECT_SPEC%"
 if errorlevel 1 goto :dependency_error
 
 echo.
@@ -185,6 +226,12 @@ if errorlevel 1 goto :validation_error
 
 "%VENV_PYTHON%" "%PROJECT_DIR%scripts\inspect_models.py" --show-cache-env --fail-on-internal-cache --allow-missing-sdxl
 if errorlevel 1 goto :validation_error
+
+if "%PULID_CONFIGURE_NETWORK%"=="1" goto :ask_firewall
+echo.
+echo Pare-feu Windows non modifie. Le serveur reste local par defaut.
+echo Mode reseau avance : relancez install_windows.bat --network.
+goto :firewall_done
 
 :ask_firewall
 echo.
@@ -281,3 +328,10 @@ echo.
 echo Appuyez sur une touche pour fermer cette fenetre.
 pause >nul
 exit /b 1
+
+:usage
+echo Usage : install_windows.bat [--production^|--development] [--network]
+echo   --production  installe le runtime sans dependances de test
+echo   --development conserve l'installation editable avec les dependances dev
+echo   --network     propose explicitement la regle de pare-feu privee
+exit /b 0

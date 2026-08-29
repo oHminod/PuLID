@@ -3,9 +3,39 @@
 set -Eeuo pipefail
 
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PULID_PROJECT_ROOT="${PROJECT_DIR}"
 VENV_DIR="${PROJECT_DIR}/.venv"
 VENV_PYTHON="${VENV_DIR}/bin/python"
 LLAMA_CPP_METAL_INDEX="https://abetlen.github.io/llama-cpp-python/whl/metal"
+PULID_INSTALL_PROFILE="${PULID_INSTALL_PROFILE:-development}"
+
+while (($#)); do
+  case "$1" in
+    --production)
+      PULID_INSTALL_PROFILE="production"
+      ;;
+    --development)
+      PULID_INSTALL_PROFILE="development"
+      ;;
+    --help|-h)
+      echo "Usage : ./install_macos.sh [--production|--development]"
+      exit 0
+      ;;
+    *)
+      echo "[ERREUR] Option d'installation inconnue : $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+case "${PULID_INSTALL_PROFILE}" in
+  production|development) ;;
+  *)
+    echo "[ERREUR] Profil PULID_INSTALL_PROFILE inconnu : ${PULID_INSTALL_PROFILE}" >&2
+    exit 2
+    ;;
+esac
 
 normalize_models_root() {
   local selected="${1%/}"
@@ -183,13 +213,21 @@ if ! "${UV_EXE}" pip install \
       "llama-cpp-python>=0.3.16,<0.4"
 fi
 
-echo "Installation ou mise à jour de PuLID et de ses extras..."
+PULID_PROJECT_SPEC=".[inference,pulid,server,embeddings]"
+PULID_EDITABLE_ARGS=()
+if [[ "${PULID_INSTALL_PROFILE}" == "development" ]]; then
+  PULID_PROJECT_SPEC=".[inference,pulid,server,embeddings,dev]"
+  PULID_EDITABLE_ARGS=(-e)
+fi
+
+echo "Installation ou mise à jour de PuLID (profil ${PULID_INSTALL_PROFILE})..."
 "${UV_EXE}" pip install \
   --python "${VENV_PYTHON}" \
   --extra-index-url "${LLAMA_CPP_METAL_INDEX}" \
   --only-binary insightface \
   --only-binary llama-cpp-python \
-  -e ".[inference,pulid,server,embeddings,dev]"
+  "${PULID_EDITABLE_ARGS[@]}" \
+  "${PULID_PROJECT_SPEC}"
 
 echo
 echo "Installation ou réparation des modèles et configurations..."

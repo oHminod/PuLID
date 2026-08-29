@@ -5,12 +5,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 
 import yaml
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def resolve_project_root(
+    *,
+    module_path: Path = Path(__file__),
+    prefix: Path = Path(sys.prefix),
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """Retrouve la racine source en mode éditable comme en installation gérée."""
+
+    environment = os.environ if environ is None else environ
+    configured = environment.get("PULID_PROJECT_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve(strict=False)
+
+    source_candidate = module_path.resolve(strict=False).parents[2]
+    if (source_candidate / "config" / "default.yaml").is_file():
+        return source_candidate
+
+    managed_candidate = prefix.expanduser().resolve(strict=False).parent
+    if (managed_candidate / "config" / "default.yaml").is_file():
+        return managed_candidate
+    return source_candidate
+
+
+PROJECT_ROOT = resolve_project_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "default.yaml"
 LOCAL_CONFIG_PATH = PROJECT_ROOT / "config" / "local.yaml"
 DEFAULT_PULID_REVISION = "1aa2fc7df4bf51080df39f355f9abdc1cbfefbaa"

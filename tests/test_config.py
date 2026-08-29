@@ -5,7 +5,50 @@ from pathlib import Path
 import pytest
 
 import pulid_app.config as config_module
-from pulid_app.config import ConfigError, load_config
+from pulid_app.config import ConfigError, load_config, resolve_project_root
+
+
+def test_project_root_supports_source_managed_and_explicit_layouts(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    source_config = source_root / "config" / "default.yaml"
+    source_config.parent.mkdir(parents=True)
+    source_config.touch()
+    source_module = source_root / "src" / "pulid_app" / "config.py"
+
+    assert resolve_project_root(
+        module_path=source_module,
+        prefix=tmp_path / "unused-venv",
+        environ={},
+    ) == source_root
+
+    managed_root = tmp_path / "managed"
+    managed_config = managed_root / "config" / "default.yaml"
+    managed_config.parent.mkdir(parents=True)
+    managed_config.touch()
+    installed_module = (
+        managed_root
+        / ".venv"
+        / "lib"
+        / "python3.11"
+        / "site-packages"
+        / "pulid_app"
+        / "config.py"
+    )
+
+    assert resolve_project_root(
+        module_path=installed_module,
+        prefix=managed_root / ".venv",
+        environ={},
+    ) == managed_root
+
+    explicit_root = tmp_path / "explicit"
+    assert resolve_project_root(
+        module_path=installed_module,
+        prefix=managed_root / ".venv",
+        environ={"PULID_PROJECT_ROOT": str(explicit_root)},
+    ) == explicit_root
 
 
 def _write_config(path: Path, models_root: Path) -> None:

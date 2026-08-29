@@ -141,10 +141,13 @@ réservant PuLID aux embeddings et à SDXL.
 ## Concurrence et réseau
 
 - PuLID sérialise les lots d'embeddings entre eux.
-- Les embeddings CUDA sont sérialisés avec SDXL. Seul `--CPU` autorise leur
-  exécution simultanée sans consommer de VRAM.
-- `start_windows.bat` lie l'API à `0.0.0.0:12693` et crée une règle de pare-feu
-  pour le profil privé. Ne pas exposer ce port à Internet : l'API ne possède ni
-  authentification ni limitation par utilisateur.
+- Les embeddings et SDXL peuvent calculer simultanément sur CUDA par défaut.
+  `--serialized-cuda`, `--partial`, `--full` et `--CPU` permettent d’adapter la
+  concurrence et la mémoire au matériel.
+- `start_windows.bat` lie l'API à `127.0.0.1:12693` par défaut. Le mode avancé
+  `start_windows.bat --network` utilise explicitement `0.0.0.0` et CORS ouvert ;
+  la règle de pare-feu privée n'est proposée que par
+  `install_windows.bat --network`. Ne pas exposer ce port à Internet : l'API ne
+  possède ni authentification ni limitation par utilisateur.
 - Les appels fournisseur de `rp-bot` partent du serveur Next.js, donc le
   navigateur n'appelle pas directement l'IP du PC PuLID.

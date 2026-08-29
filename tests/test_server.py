@@ -12,6 +12,8 @@ import httpx
 from PIL import Image
 import pytest
 
+from pulid_app import __version__
+from pulid_app.api_contract import API_CONTRACT_VERSION
 from pulid_app.exceptions import PromptTooLongError, UnsupportedDeviceError
 from pulid_app.server import (
     build_parser,
@@ -192,6 +194,52 @@ def _generate_request(app, model: str = "realvisxl"):
             "seed": "42",
         },
     )
+
+
+def test_discovery_endpoints_are_lightweight_and_versioned(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    for model_file in tmp_path.glob("models/**/*"):
+        if model_file.is_file():
+            model_file.unlink()
+
+    health = _request(app, "GET", "/health")
+    version = _request(app, "GET", "/version")
+    capabilities = _request(app, "GET", "/capabilities")
+
+    assert health.status_code == 200
+    assert health.json() == {
+        "status": "ok",
+        "version": __version__,
+        "api_contract_version": API_CONTRACT_VERSION,
+    }
+    assert version.status_code == 200
+    assert version.json() == {
+        "component": "pulid",
+        "version": __version__,
+        "api_contract_version": API_CONTRACT_VERSION,
+    }
+    assert capabilities.status_code == 200
+    assert capabilities.json() == {
+        "component": "pulid",
+        "version": __version__,
+        "api_contract_version": API_CONTRACT_VERSION,
+        "capabilities": {
+            "image_generation": {
+                "enabled": True,
+                "catalog_endpoint": "/models",
+                "generation_endpoint": "/generate",
+            },
+            "text_embeddings": {
+                "enabled": True,
+                "models_endpoint": "/v1/models",
+                "embeddings_endpoint": "/v1/embeddings",
+                "model": "text-embedding-bge-m3",
+                "dimensions": 2,
+            },
+        },
+    }
+    assert FakeMemoryGenerator.instances == []
+    assert FakeEmbeddingModel.instances == []
 
 
 def test_models_endpoint_lists_sampling_methods_and_sigmas_separately(
@@ -542,7 +590,10 @@ def test_cpu_embedding_can_run_during_sdxl_generation(tmp_path: Path) -> None:
 def test_embedding_memory_cli_modes_are_exclusive() -> None:
     parser = build_parser()
 
-    assert parser.parse_args([]).embedding_memory_mode == "concurrent"
+    defaults = parser.parse_args([])
+    assert defaults.embedding_memory_mode == "concurrent"
+    assert defaults.host == "127.0.0.1"
+    assert defaults.cors_origin == []
     assert parser.parse_args(["--partial"]).embedding_memory_mode == "partial"
     assert parser.parse_args(["--full"]).embedding_memory_mode == "full"
     assert (

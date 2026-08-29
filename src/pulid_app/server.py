@@ -23,6 +23,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from pulid_app import __version__
+from pulid_app.api_contract import API_CONTRACT_VERSION, capabilities_payload
 from pulid_app.config import AppConfig, load_config
 from pulid_app.exceptions import (
     FaceNotDetectedError,
@@ -627,6 +628,35 @@ def create_app(
     generation_lock = asyncio.Lock()
     embedding_lock = asyncio.Lock()
     accelerator_lock = asyncio.Lock()
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {
+            "status": "ok",
+            "version": __version__,
+            "api_contract_version": API_CONTRACT_VERSION,
+        }
+
+    @app.get("/version")
+    async def version() -> dict[str, str]:
+        return {
+            "component": "pulid",
+            "version": __version__,
+            "api_contract_version": API_CONTRACT_VERSION,
+        }
+
+    @app.get("/capabilities")
+    async def capabilities() -> dict[str, object]:
+        embedding_config = config.text_embedding
+        return capabilities_payload(
+            application_version=__version__,
+            embedding_model=(
+                embedding_config.model_id if embedding_config is not None else None
+            ),
+            embedding_dimensions=(
+                embedding_config.dimensions if embedding_config is not None else None
+            ),
+        )
 
     @app.get("/models")
     async def models() -> dict[str, Any]:

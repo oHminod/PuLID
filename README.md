@@ -13,7 +13,7 @@ usages avancés. L’ensemble fonctionne sans ComfyUI.
 
 - [Ce que fournit le projet](#ce-que-fournit-le-projet)
 - [Installation rapide](#installation-rapide)
-  - [1. Cloner le dépôt](#1-cloner-le-dépôt)
+  - [1. Choisir le parcours](#1-choisir-le-parcours)
   - [2. Installer sur macOS](#2-installer-sur-macos)
   - [3. Installer sous Windows](#3-installer-sous-windows)
   - [4. Choisir le checkpoint SDXL](#4-choisir-le-checkpoint-sdxl)
@@ -49,7 +49,6 @@ le CPU. Sur macOS, la détection faciale InsightFace reste exécutée sur CPU.
 ### Prérequis
 
 - une connexion Internet lors de la première installation ;
-- [Git](https://git-scm.com/downloads) pour récupérer le projet ;
 - Python 3.11 à 3.13, installé automatiquement par les scripts si nécessaire ;
 - sur macOS, un Mac Apple Silicon ;
 - sous Windows, un GPU NVIDIA et un pilote compatible avec CUDA 13 ;
@@ -62,7 +61,12 @@ projet, mais permet de choisir un autre emplacement, par exemple sur un SSD
 externe. Il y place les checkpoints, PuLID, AntelopeV2, BGE-M3 et tous les
 caches lourds.
 
-### 1. Cloner le dépôt
+Git n’est requis que pour le parcours de développement depuis un clone. Une
+installation gérée utilise l’archive de release et ne requiert pas Git.
+
+### 1. Choisir le parcours
+
+Pour développer PuLID, cloner le dépôt :
 
 Dans un terminal :
 
@@ -71,13 +75,28 @@ git clone https://github.com/oHminod/PuLID.git
 cd PuLID
 ```
 
+Pour une installation gérée, extraire `pulid-<version>.tar.gz` dans un nouveau
+dossier. L’archive contient les mêmes installateurs et lanceurs que le clone,
+sans historique Git, tests, caches, configurations locales ni modèles.
+
 ### 2. Installer sur macOS
 
-Depuis la racine du projet :
+Depuis un clone de développement :
 
 ```bash
 ./install_macos.sh
 ```
+
+Depuis une archive de release, ou pour reproduire le profil géré depuis un
+clone :
+
+```bash
+./install_production_macos.sh
+# équivalent : ./install_macos.sh --production
+```
+
+Le parcours historique reste une installation éditable avec les dépendances de
+développement. Le profil production est non éditable et exclut l’extra `dev`.
 
 À la première exécution, acceptez le dossier de modèles proposé ou indiquez un
 emplacement personnalisé. Le chemin peut désigner directement un dossier nommé
@@ -85,17 +104,24 @@ emplacement personnalisé. Le chemin peut désigner directement un dossier nomm�
 
 ### 3. Installer sous Windows
 
-Depuis l’Explorateur ou `cmd.exe` :
+Depuis un clone de développement, dans l’Explorateur ou `cmd.exe` :
 
 ```bat
 install_windows.bat
 ```
 
-Le script installe l’environnement Python, les dépendances CUDA et les modèles,
-puis demande s’il doit autoriser le port `12693` dans le pare-feu Windows pour
-les réseaux privés. Répondez **non** — la valeur par défaut — si PuLID est
-utilisé uniquement sur ce PC. Répondez **oui** seulement si un autre appareil
-du réseau local doit accéder au serveur.
+Depuis une archive de release, ou pour reproduire le profil géré depuis un
+clone :
+
+```bat
+install_production_windows.bat
+rem équivalent : install_windows.bat --production
+```
+
+Le pare-feu Windows n’est pas modifié par défaut. Pour préparer volontairement
+un accès depuis le réseau privé, utilisez l’option avancée
+`install_windows.bat --network`, puis confirmez l’ouverture du port `12693`.
+Cette option se combine avec `--production` et reste idempotente.
 
 InsightFace 1.0.1 est installé depuis sa wheel officielle. L’installateur exige
 cette distribution binaire sur macOS comme sous Windows.
@@ -149,8 +175,21 @@ L’exécution depuis `cmd.exe` reste également possible :
 start_windows.bat
 ```
 
-Le serveur écoute sur le port `12693`. Le script Windows affiche aussi les
-adresses IPv4 utilisables depuis une autre machine du réseau local.
+Le serveur écoute par défaut sur `127.0.0.1:12693`, y compris sous Windows. Il
+n’est donc accessible que depuis la machine locale.
+
+Pour un réseau privé de confiance uniquement, après configuration explicite du
+pare-feu, le mode avancé Windows écoute sur `0.0.0.0` et active CORS ouvert :
+
+```bat
+start_windows.bat --network
+```
+
+L’équivalent direct sur macOS est explicite lui aussi :
+
+```bash
+./start_pulid_server.sh --host 0.0.0.0 --cors-origin "*"
+```
 
 Pour créer un raccourci sur le Bureau sans déplacer le script :
 
@@ -325,6 +364,17 @@ Sous Windows :
 permissions, le device et les dépendances critiques sans lancer une génération
 complète.
 
+Pour la supervision gérée, les routes suivantes ne chargent aucun modèle :
+
+```bash
+curl http://127.0.0.1:12693/health
+curl http://127.0.0.1:12693/version
+curl http://127.0.0.1:12693/capabilities
+```
+
+Elles exposent séparément la version PuLID, dérivée de `pyproject.toml`, et la
+version SemVer du contrat API.
+
 ## Ajouter un checkpoint SDXL
 
 Déposez le fichier `.safetensors` dans :
@@ -417,7 +467,7 @@ responsable de l’enregistrement du PNG reçu.
 | Symptôme | Action recommandée |
 |---|---|
 | Catalogue PuLID indisponible dans `rp-bot` | Vérifier que le serveur est démarré et que l’URL se termine par `:12693`, sans `/v1` |
-| Serveur distant inaccessible | Utiliser l’IPv4 privée affichée par `start_windows.bat`, relancer l’installation et accepter l’ouverture du pare-feu privé |
+| Serveur distant inaccessible | Sur un réseau privé uniquement, exécuter `install_windows.bat --network`, puis `start_windows.bat --network` et utiliser l’IPv4 privée affichée |
 | Aucun visage détecté | Choisir un avatar net, de face et suffisamment grand |
 | Plusieurs visages détectés | Recadrer l’avatar afin qu’un seul visage soit visible |
 | Checkpoint introuvable | Vérifier le fichier sous `<PuLID_models>/checkpoints/`, puis actualiser le catalogue |
@@ -437,6 +487,8 @@ privé de confiance.
   configuration détaillée de BGE-M3 dans `rp-bot` ;
 - [`PULID_CODEX_IMPLEMENTATION_PLAN.md`](PULID_CODEX_IMPLEMENTATION_PLAN.md) :
   architecture, phases d’implémentation et validation technique.
+- [`RELEASE.md`](RELEASE.md) : archive déterministe, SHA-256, profil production
+  sans Git et procédure de publication.
 
 Pour exécuter les tests unitaires, sans réseau ni modèle lourd :
 

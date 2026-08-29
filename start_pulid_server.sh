@@ -3,6 +3,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PULID_PROJECT_ROOT="${PROJECT_DIR}"
 VENV_ACTIVATE="${PROJECT_DIR}/.venv/bin/activate"
 
 if [[ ! -f "${VENV_ACTIVATE}" ]]; then

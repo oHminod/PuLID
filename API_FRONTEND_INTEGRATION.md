@@ -1,12 +1,26 @@
 # API PuLID — intégration frontend
 
-Ce serveur HTTP local expose quatre routes applicatives :
+Ce serveur HTTP local expose sept routes applicatives. Trois routes de découverte
+stables sont prévues pour les lanceurs, installateurs et clients gérés :
+
+- `GET /health` confirme que le processus HTTP répond ;
+- `GET /version` expose la version PuLID et celle du contrat API ;
+- `GET /capabilities` décrit les fonctions et routes disponibles.
+
+Les quatre routes métier sont :
 
 - `GET /models` liste séparément les checkpoints SDXL, les méthodes de sampling
   et les courbes de sigmas compatibles ;
 - `POST /generate` génère une image et renvoie directement le PNG.
 - `GET /v1/models` expose le modèle d'embedding de texte local au format OpenAI ;
 - `POST /v1/embeddings` calcule un ou plusieurs embeddings au format OpenAI.
+
+Les trois routes de découverte ne vérifient, ne chargent et ne téléchargent
+aucun modèle. Elles restent donc légères même lorsque les checkpoints sont
+absents ou temporairement indisponibles. La version PuLID provient des
+métadonnées du paquet générées depuis `project.version` dans `pyproject.toml`.
+Le contrat HTTP est versionné indépendamment en SemVer ; cette tranche expose
+`1.0.0`.
 
 La génération HTTP est séparée du chemin CLI avec sauvegarde. Elle ne crée ni
 image dans `outputs/`, ni manifeste JSON. L'image de référence, le
@@ -27,10 +41,10 @@ Installer les dépendances du serveur avec celles de l'inférence :
 uv pip install -e '.[inference,pulid,server,embeddings]'
 ```
 
-Démarrer sur l'interface locale :
+Démarrer sur l'interface locale, comportement par défaut :
 
 ```bash
-pulid-server --host 127.0.0.1 --port 12693 --device mps
+pulid-server --port 12693 --device mps
 ```
 
 Si le frontend est servi depuis une autre origin, l'autoriser explicitement :
@@ -46,6 +60,21 @@ pulid-server \
 `--cors-origin` est répétable. Par défaut, aucune origin distante n'est
 autorisée. Le serveur n'implémente pas d'authentification et doit rester lié à
 `127.0.0.1`, sauf si une protection réseau adaptée est ajoutée.
+
+L’écoute sur toutes les interfaces et CORS ouvert sont des options avancées
+séparées et explicites :
+
+```bash
+pulid-server \
+  --host 0.0.0.0 \
+  --port 12693 \
+  --cors-origin "*"
+```
+
+Ne combinez ces options que sur un réseau privé de confiance. Sous Windows,
+`start_windows.bat` reste sur `127.0.0.1`, tandis que
+`start_windows.bat --network` active ce mode avancé. La règle de pare-feu privée
+n’est proposée que par `install_windows.bat --network`.
 
 La politique mémoire BGE/SDXL se choisit au démarrage :
 
@@ -68,6 +97,75 @@ URL de base utilisée dans les exemples :
 ```text
 http://127.0.0.1:12693
 ```
+
+## Découverte, santé et compatibilité
+
+### Santé du processus
+
+```http
+GET /health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "api_contract_version": "1.0.0"
+}
+```
+
+Un statut `200` signifie que le processus HTTP répond. Il ne garantit pas la
+présence des modèles ; utilisez ensuite les routes métier ou `pulid-gen doctor`
+pour un diagnostic des actifs locaux.
+
+### Versions
+
+```http
+GET /version
+```
+
+```json
+{
+  "component": "pulid",
+  "version": "0.1.0",
+  "api_contract_version": "1.0.0"
+}
+```
+
+Un client doit comparer séparément la version PuLID exacte et le major du
+contrat API.
+
+### Capacités
+
+```http
+GET /capabilities
+```
+
+```json
+{
+  "component": "pulid",
+  "version": "0.1.0",
+  "api_contract_version": "1.0.0",
+  "capabilities": {
+    "image_generation": {
+      "enabled": true,
+      "catalog_endpoint": "/models",
+      "generation_endpoint": "/generate"
+    },
+    "text_embeddings": {
+      "enabled": true,
+      "models_endpoint": "/v1/models",
+      "embeddings_endpoint": "/v1/embeddings",
+      "model": "text-embedding-bge-m3",
+      "dimensions": 1024
+    }
+  }
+}
+```
+
+`enabled` décrit la configuration annoncée, pas l’état de chargement d’un poids.
+Les valeurs `model` et `dimensions` sont `null` si les embeddings ne sont pas
+configurés.
 
 ## Embeddings de texte OpenAI compatibles
 
